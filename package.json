@@ -1,0 +1,32 @@
+{
+  "name": "jsmf-neo4j",
+  "version": "0.1.0",
+  "description": "JSMF Neo4J Connector",
+  "main": "jsmf-neo4j.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "mocha --recursive"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@git.list.lu:model/jsmf-neo4j.git"
+  },
+  "keywords": [
+    "Model",
+    "Persistency",
+    "Model",
+    "Query"
+  ],
+  "author": "Jean-Sebastien Sottet <jean-sebastien.sottet@list.lu> (http://www.list.lu/)",
+  "license": "MIT",
+  "dependencies": {
+    "async": "~1.5.0",
+    "lodash": "~3.10.1",
+    "node-neo4j": "~2.0.3"
+  },
+  "devDependencies": {
+    "eyes": "~0.1.8"
+  }
+}
