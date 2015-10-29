@@ -21,7 +21,12 @@ var _ = require("lodash");
 var inspect = require('eyes').inspector({maxLength: 9000});
 
 var ids = [];
+var db= null;
 
+function init(serverURL) {
+	
+	db = new neo4j(serverURL);
+}
 
 module.exports = {
 //Function Create Node From Model Element
@@ -47,7 +52,8 @@ loadModel : function(Model) {
 },
 
 init : function(serverURL) {
-	var db = new neo4j(serverURL);
+	init(serverURL);
+	
 }
 
 //Load view?
@@ -169,6 +175,7 @@ function saveModel(Model) {
 		});
         console.log(idSource);
        if(idSource==undefined) {
+		console.log('pushOBJ',pushObject,labelMetaClass);
 		db.insertNode(pushObject , 
 			[labelMetaClass,Model.__name], //Add Model.__name as label to the object (Utility of labelModelName?)
 			function(err, result) {
@@ -291,7 +298,7 @@ function createReferencesBVERSION(ModelElement, callback5) {
 				}
 			});// end dbInsert 
 		}, function(err) {
-			//callback5(); //all relation are supposed to be pushed into DB
+			//callback5(); //all relation are supposed to be pushed into db
 		});	
 		callback5();
 	}); //end parallel
@@ -389,7 +396,7 @@ function createReferencesCVERSION(ModelElement, callback5) {
 				}
 			});// end dbInsert 
 		}, function(err) {
-			//callback5(); //all relation are supposed to be pushed into DB
+			//callback5(); //all relation are supposed to be pushed into db
 		});		 
 		callback5();
 	}); //end parallel
