@@ -47,8 +47,8 @@ saveModel : function(Model) {
 	saveModel(Model);
 },
     
-loadModel : function(Model) {
-    loadModel(Model);   
+loadModel : function(Model, callback) {
+    loadModel(Model, callback);   
 },
 
 init : function(serverURL) {
@@ -372,7 +372,7 @@ function createReferencesCVERSION(ModelElement, callback5) {
           callback2();
         });
       }, function(err) {
-        if(err)  {
+        if(err) {
           console.log(err);
         }
         callback3();
@@ -399,4 +399,65 @@ function createReferencesCVERSION(ModelElement, callback5) {
 		});		 
 		callback5();
 	}); //end parallel
+}
+
+function loadModel(Model, callback) {
+  var M2 = Model.referenceModel;
+  var mapping = {};
+  var relations = [];
+  async.eachSeries(M2.modellingElements, function(item, callback2) {
+    var currentClass = item;
+    db.readNodesWithLabel(item.__name, function (err, result) {
+      if (err) throw err;
+      async.eachSeries(result, function(e, callback3) {
+        var s = currentClass.newInstance("x");
+        mapping[e._id] = s;
+        for (it in currentClass.__attributes) {
+          functionName = "set" + it; //- creating the name of the method to be called
+          s[functionName](e[it]); // <=> setAttribute(Value)
+        }
+        db.readRelationshipsOfNode(e._id, {
+          direction: 'out' // optional, alternative 'out', defaults to 'all'
+        }, function(err, relationships) {
+          if (err) throw err;
+          relationships.forEach(function(r, i) {
+            if (r._type in currentClass.__references) {
+              referenceFunctionName = "set" + r._type;
+              var target = r._end;
+              var associatedClass = currentClass.__references[r._type].associated;
+              var a = undefined;
+              if (associatedClass != undefined) {
+                a = associatedClass.newInstance("x");
+                for (it2 in associatedClass.__attributes) {
+                  functionName = "set" + it2;
+                  a[functionName](r[it2]);
+                }
+              }
+              relations.push({
+                'referenceFunctionName': referenceFunctionName,
+                'source': r._start,
+                'target': r._end,
+                'associated': a,
+              });
+            }
+          });
+          Model.setModellingElement(s);
+          callback3();
+        });
+      }, function() {
+        callback2();
+      });
+    });
+  }, function() {
+    relations.forEach(function(e, i) {
+      if ((e.target in mapping) && (e.source in mapping)) {
+        if (e.associated == undefined) {
+          mapping[e.source][e.referenceFunctionName](mapping[e.target]);
+        } else {
+          mapping[e.source][e.referenceFunctionName](mapping[e.target], e.associated);
+        }
+      }
+    });
+    callback(Model);
+  });
 }
