@@ -2,7 +2,7 @@
   "name": "jsmf-neo4j",
   "version": "0.1.0",
   "description": "JSMF Neo4J Connector",
-  "main": "jsmf-neo4j.js",
+  "main": "index.js",
   "directories": {
     "test": "test"
   },
@@ -11,7 +11,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git@git.list.lu:model/jsmf-neo4j.git"
+    "url": "git@git.list.lu:jsmf/jsmf-neo4j.git"
   },
   "keywords": [
     "Model",
@@ -25,7 +25,7 @@
     "async": "~1.5.0",
     "lodash": "~3.10.1",
     "node-neo4j": "~2.0.3",
-    "jsmf": "git+ssh://git@git.list.lu:model/jsmf.git"
+    "jsmf-core": "git+ssh://git@git.list.lu:jsmf/jsmf-core.git"
   },
   "devDependencies": {
     "eyes": "~0.1.8"
