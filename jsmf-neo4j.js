@@ -406,14 +406,14 @@ function loadModel(Model, callback) {
   var mapping = {};
   var relations = [];
   async.eachSeries(M2.modellingElements, function(item, callback2) {
-    var currentClass = item;
-    db.readNodesWithLabel(item.__name, function (err, result) {
+    var currentClass = item[0];
+    db.readNodesWithLabel(currentClass.__name, function (err, result) {
       if (err) throw err;
       async.eachSeries(result, function(e, callback3) {
         var s = currentClass.newInstance("x");
         mapping[e._id] = s;
         for (it in currentClass.__attributes) {
-          functionName = "set" + it; //- creating the name of the method to be called
+          functionName = "set" + it[0].toUpperCase() + it.slice(1); //- creating the name of the method to be called
           s[functionName](e[it]); // <=> setAttribute(Value)
         }
         db.readRelationshipsOfNode(e._id, {
