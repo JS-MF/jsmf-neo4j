@@ -14,428 +14,167 @@ TODO:
     - read from DB
     - update nodes/model
 *************************************** */
+'use strict'
 
-var neo4j = require('node-neo4j');
-var async = require("async");
-var _ = require("lodash");
-
-var ids = [];
-var db= null;
-
-function init(serverURL) {
-    db = new neo4j(serverURL);
-}
-
-module.exports = {
-    //Function Create Node From Model Element
-    persist: function (ModelElement) {
-    // MetaModel, Model(container) as labels
-        createNode(ModelElement);
-    },
-
-    resolve: function(ModelElement) {
-        resolveIdFromModelElement(ModelElement);
-    },
-
-    deleteElement : function(ModelElement){
-        deleteAllNodes(ModelElement);
-    },
-
-    saveModel : function(Model) {
-        saveModel(Model);
-    },
-
-    loadModel : function(Model, callback) {
-        loadModel(Model, callback);
-    },
-
-    init : function(serverURL) {
-        init(serverURL);
-    }
-}; // end exports
-
-// TODO do the Cypher query with object constructed from ModelElement
-function resolveId(ModelElement)  {
-    var queryPart="";
-    for(i in ModelElement.conformsTo().__attributes) {
-        //ModelElement[i] = attribute content, i = attribute name.
-        if(queryPart==="") {
-        queryPart+='n.'+i+'='+'\"'+ModelElement[i]+'\"'
-        } else {
-        queryPart+='and n.'+i+'='+'\"'+ModelElement[i]+'\"'
-        }
-    }
-    db.cypherQuery('MATCH (n) WHERE '+queryPart+' RETURN n', null, function (err, result) {
-            console.log('MATCH (n) WHERE '+queryPart+' RETURN n');
-        if(result.data.length!=0) {
-            if(result.data.length==1) {
-                return result.data[0]._id;
-            } else {
-                console.log("many results, returning last value");
-                var last = result.data.length-1;
-                return result.data[last]._id;
-            }
-        } else { console.log("merde"); }
-    });
-}
+const neo4j = require('neo4j-driver').v1
+    , _ = require('lodash')
+    , JSMF = require('jsmf-core')
 
 
-function resolveIdFromModelElement(ModelElement) {
-    var labelMetaClass = ModelElement.conformsTo().__name;
-    var pushObject = {};
+let driver
 
-    for(i in ModelElement.conformsTo().__attributes) {
-        pushObject[i] = ModelElement[i];
-    }
-
-    db.readNodesWithLabelsAndProperties (labelMetaClass, pushObject, function(err, result) {
-        if(err) {
-            throw err;
-        } else {
-            return(result[0]._id);
-        }
-    });
-}
-
-function queryGeneration(ModelElement)  {
-    var queryPart="";
-    for(i in ModelElement.conformsTo().__attributes) {
-        //ModelElement[i] = attribute content, i = attribute name.
-        if(queryPart==="") {
-        queryPart+='n.'+i+'='+'\"'+ModelElement[i]+'\"';
-        } else {
-        queryPart+=' and n.'+i+'='+'\"'+ModelElement[i]+'\"';
-        }
-    }
-    return queryPart;
-}
-
-function deleteAllNodes(ModelElement) {
-
-    var query = queryGeneration(ModelElement);
-    db.cypherQuery('MATCH (n) WHERE '+query+' RETURN n', null, function (err, result) {
-        for(i in result.data) {
-            idTarget = result.data[i]._id;
-            db.deleteNode(idTarget, function (err, node) {
-                if(err) {
-                    throw err;
-                }
-                console.log(node);
-            });
-        }
-
-    });
-}
-//DeleteNodeWithLabelAndProperties = avoid to resolve IDS check!!!
-
-function saveModel(Model) {
-  //building element list
-    modelElements = [];
-    for(meta in Model.modellingElements) {
-        for(j in Model.modellingElements[meta]) {
-            modelElements.push(Model.modellingElements[meta][j]);
-        }
-    }
-    //create node before references, using async lib
-    async.eachSeries(modelElements, function(element, callback) {
-        var pushObject = {};
-
-    for(i in element.conformsTo().__attributes) {
-      pushObject[i] = element[i];
-    }
-
-    var labelMetaClass = element.conformsTo().__name;
-    var labelModelName = Model.__name;
-
-    //WARNING We are in presence of undefined metaelement OR a metaclass
-    if(labelMetaClass==undefined) {
-        labelMetaClass = Model.__name+"_Class_Undefined";
-    }
-    //use async read... then
-    db.readNodesWithLabelsAndProperties(labelMetaClass, pushObject, function (err, result) {
-      if(result!=undefined) {
-        if(result.length!=0) {
-          //Always return the first value (oldest node)
-          var idSource = result[0]._id;
-          console.log(idSource);
-        }
-        console.log(idSource);
-        if(idSource==undefined) {
-          console.log('pushOBJ',pushObject,labelMetaClass);
-          db.insertNode(pushObject ,
-            [labelMetaClass,Model.__name], //Add Model.__name as label to the object (Utility of labelModelName?)
-            function(err, result) {
-              if(err) {
-                throw err;
-              } else {
-                idSource = result._id;
-                console.log('Object of Type: '+labelMetaClass+' Added');
-                callback();
-              }
-          });
-        } else {
-            console.log('node already present in model: should update node'); callback();
-        }
-    }
-        });
-    }, function (res) {
-        console.log("All nodes pushed into Neo4J... pushing associations");
-        async.eachSeries(modelElements, function(element, callback5) {
-            //console.dir("Elements: "+element);
-            //createReferencesBVERSION(element,callback5);
-      createReferencesCVERSION(element,callback5);
-    }, function(res2) {
-            console.log("Model pushed fully into Neo4J");
-        });
-    });
-}
-
-
-function createMetaNode(MetaModelElement, Model,callback) {
-    var pushObject = {};
-    pushObject["__name"] = MetaModelElement.__name;
-    var metalabel = Model.__name+"_"+MetaModelElement.__name;
-    //Insert a node conforms to the model schema
-    for(i in MetaModelElement.__attributes) {
-        console.log(MetaModelElement.__attributes[i]);
-        pushObject[i] = MetaModelElement.__attributes[i];
-    }
-    db.insertNode(pushObject ,
-            metalabel,
-            function(err, result) {
-            if(err) {
-                throw err;
-            } else {
-                idSource = result._id;
-                console.log('MetaObject of Type: '+metalabel+' Added');
-                callback();
-            }
-    });
-}
-
-//REFERENCE Using "build String Queries"
-function createReferencesBVERSION(ModelElement, callback5) {
-    var querySource="";
-    var queryTarget="";
-    var queryTargetType="";
-    var idSource;
-    var idTarget;
-    var idTargets = [];
-    var labeledIds = {};
-    var relationLabel;
-    var currentRelationElement;
-
-    querySource = queryGeneration(ModelElement);
-    querysourceType = "`"+ModelElement.conformsTo().__name+"`";
-    var targetElements=[];
-
-    for(i in ModelElement.conformsTo().__references) {
-            currentRelationElement = ModelElement[i];
-            relationLabel = i;
-            for(relIt in currentRelationElement) {
-                targetElements.push({label: relationLabel, el :currentRelationElement[relIt]});
-            }
-    }
-
-
-    //if referenceElement is not empty
-    async.parallelLimit(
-    [ function(callback1) {
-        // Get Source ID if references...
-//debug
-        //console.log('SOURCE! MATCH (n:'+querysourceType+') WHERE '+querySource+' RETURN n');
-        db.cypherQuery('MATCH (n:'+querysourceType+') WHERE '+querySource+' RETURN n', null, function (err, result) {
-            if(result.data.length!=0) {
-                //Always return the first value (oldest node)
-                idSource = result.data[0]._id;
-            } else {console.log("Error object not found in Database")};
-            callback1();
-        });
-    },    function(callback3) {
-                async.eachSeries(targetElements, function(element,callback2) {
-                //console.log(element);
-                    queryTarget = queryGeneration(element.el);
-                    queryTargetType = "`"+element.el.conformsTo().__name+"`";
-//debug //console.log(' TARGET! MATCH (n:'+queryTargetType+') WHERE '+queryTarget+' RETURN n');
-                    db.cypherQuery('MATCH (n:'+queryTargetType+') WHERE '+queryTarget+' RETURN n', null, function (err, result) {
-                        if(result.data.length!=0) {
-                            idTargets.push({label: element.label, el:result.data[0]._id});
-                            idTarget = result.data[0]._id;
-                        } else {console.log("Error object not found in Database");}
-                            callback2();
-                        });
-                    }, function(err) {
-                        if(err)  {
-                            console.log(err);
-                        }
-                        callback3();
-                    });
-    }],
-        10, //up to 10 queries in parallel (WARNING arbitrary limit).
-        function(err) {
-        async.eachSeries(idTargets, function(relation, callback6) {
-             db.insertRelationship(idSource,relation.el, relation.label,{}, function(err, result){ // let see if transition should support some properties...
-                if(err) {
-                    throw err;
-                } else {
-                    relationid = result._id;
-                    console.log("Reference created "+relation.label);
-                    callback6();
-                }
-            });// end dbInsert
-        }, function(err) {
-            //callback5(); //all relation are supposed to be pushed into db
-        });
-        callback5();
-    }); //end parallel
-}
-
-
-//Version Using WebService Query
-function createReferencesCVERSION(ModelElement, callback5) {
-    var querySource="";
-    var queryTarget="";
-    var queryTargetType="";
-    var idSource;
-    var idTarget;
-    var idTargets = [];
-    var labeledIds = {};
-    var relationLabel;
-    var currentRelationElement;
-
-    var targetElements=[];
-
-  var labelMetaClass = ModelElement.conformsTo().__name;
-  var pushObject = {};
-
-  var associatedObjectValues = ModelElement.associated;
-
-  for(i in ModelElement.conformsTo().__attributes) {
-    pushObject[i] = ModelElement[i];
+module.exports = function init(url, user, password) {
+  if (user !== undefined && password !== undefined) {
+    driver = neo4j.driver(url, neo4j.auth.basic(user, password))
+  } else if (user === undefined && password === undefined) {
+    driver = neo4j.driver(url)
+  } else  {
+    throw new Error('Invalid user/password pair')
   }
-
-    for(i in ModelElement.conformsTo().__references) {
-        currentRelationElement = ModelElement[i];
-        relationLabel = i;
-        for(relIt in currentRelationElement) {
-            //console.log('TOTO',relIt, currentRelationElement[relIt]);
-            targetElements.push({label: relationLabel, el :currentRelationElement[relIt], id: relIt});
-        }
-    }
-
-    //if referenceElement is not empty
-    async.parallelLimit([
-    function(callback1) {
-      // Get Source ID if references...
-      db.readNodesWithLabelsAndProperties(labelMetaClass, pushObject, function (err, result) {
-        if(result!=undefined){
-          if(result.length!=0) {
-            //Always return the first value (oldest node)
-            idSource = result[0]._id;
-          } else { console.log("Error object not found in Database 3")};
-        } else {console.log("Error object not found in Database 4");}
-        callback1();
-      });
-    }, function(callback3) {
-      async.eachSeries(targetElements, function(element,callback2) {
-        var pushObject = {};
-        //console.log('TOTO',element);
-        var labelMetaClass = element.el.conformsTo().__name;
-        for(j in element.el.conformsTo().__attributes) {
-          pushObject[j] = element.el[j];
-        }
-        //debug
-        db.readNodesWithLabelsAndProperties(labelMetaClass,pushObject, function (err, result) {
-          if(result.length!=0) {
-            idTargets.push({label: element.label, el:result[0]._id, id:element.id});
-            //idTarget = result[0]._id;
-          } else {console.log("Error object not found in Database 5");}
-          callback2();
-        });
-      }, function(err) {
-        if(err) {
-          console.log(err);
-        }
-        callback3();
-      });
-    }],
-  10, //up to 10 queries in parallel (WARNING arbitrary limit).
-  function(err) {
-      async.eachSeries(idTargets, function(relation, callback6) {
-      objectAssociation = _.select(ModelElement.associated, {ref:relation.label})[relation.id].associated;
-      db.insertRelationship(idSource,relation.el, relation.label,objectAssociation, function(err, result){ // let see if transition should support some properties...
-        if(err) {
-          throw err;
-        } else {
-          relationid = result._id;
-          console.log("Reference created "+relation.label);
-          callback6();
-        }
-      });// end dbInsert
-        }, function(err) {
-            //callback5(); //all relation are supposed to be pushed into db
-        });
-        callback5();
-    }); //end parallel
 }
 
-function loadModel(Model, callback) {
-  var M2 = Model.referenceModel;
-  var mapping = {};
-  var relations = [];
-  async.eachSeries(M2.modellingElements, function(item, callback2) {
-    var currentClass = item;
-    db.readNodesWithLabel(item.__name, function (err, result) {
-      if (err) throw err;
-      async.eachSeries(result, function(e, callback3) {
-        var s = currentClass.newInstance("x");
-        mapping[e._id] = s;
-        for (it in currentClass.__attributes) {
-          functionName = "set" + it; //- creating the name of the method to be called
-          s[functionName](e[it]); // <=> setAttribute(Value)
-        }
-        db.readRelationshipsOfNode(e._id, {
-          direction: 'out' // optional, alternative 'out', defaults to 'all'
-        }, function(err, relationships) {
-          if (err) throw err;
-          relationships.forEach(function(r, i) {
-            if (r._type in currentClass.__references) {
-              referenceFunctionName = "set" + r._type;
-              var target = r._end;
-              var associatedClass = currentClass.__references[r._type].associated;
-              var a = undefined;
-              if (associatedClass != undefined) {
-                a = associatedClass.newInstance("x");
-                for (it2 in associatedClass.__attributes) {
-                  functionName = "set" + it2;
-                  a[functionName](r[it2]);
-                }
-              }
-              relations.push({
-                'referenceFunctionName': referenceFunctionName,
-                'source': r._start,
-                'target': r._end,
-                'associated': a,
-              });
-            }
-          });
-          Model.setModellingElement(s);
-          callback3();
-        });
-      }, function() {
-        callback2();
-      });
-    });
-  }, function() {
-    relations.forEach(function(e, i) {
-      if ((e.target in mapping) && (e.source in mapping)) {
-        if (e.associated == undefined) {
-          mapping[e.source][e.referenceFunctionName](mapping[e.target]);
-        } else {
-          mapping[e.source][e.referenceFunctionName](mapping[e.target], e.associated);
-        }
-      }
-    });
-    callback(Model);
-  });
+module.exports.close = () => driver.close()
+
+module.exports.saveModel = function saveModel(m) {
+  const elements = m.elements()
+  const session = driver.session()
+  return saveElements(elements, session)
+    .then(m => saveRelationships(elements, m, session))
+    .then(() => session.close())
+}
+
+module.exports.loadModel = function loadModel(mm) {
+  const session = driver.session()
+  const classes = _.map(mm.modellingElements, x => x[0])
+  return Promise.all(_.map(classes, k => loadElements(k, session)))
+    .then(elementsByClass =>
+        _.flatMap(elementsByClass, elements => {
+          const cls = elements[0]
+          const records = elements[1].records
+          return _.flatMap(records, x => refillAttributes(cls, x.get('a'), session))
+        })
+    )
+    .then(elements => filterClassHierarchy(elements))
+    .then(elements => refillReferences(classes, elements, session))
+    .then(values => new JSMF.Model('LoadedModel', mm, values))
+}
+
+function loadElements(cls, session) {
+  const query = `MATCH (a:${cls.__name}) RETURN (a)`
+  return session.run(query).then(x => [cls, x])
+}
+
+function refillAttributes(cls, e) {
+  const res = cls.newInstance()
+  _.forEach(cls.getAllAttributes(), (t, x) => res[x] = e.properties[x])
+  res.__jsmf__.uuid = e.properties.__jsmf__
+  return res
+}
+
+function filterClassHierarchy(elements) {
+  const res = _.reduce(elements, (acc, e) => checkElement(acc, e), new Map())
+  return Array.from(res.values())
+}
+
+function checkElement(m, elem) {
+  const elemId = JSMF.jsmfId(elem)
+  const old = m.get(elemId)
+  if (old === undefined) { m.set(elemId, elem) }
+  else {
+    const oldClasses = old.conformsTo().getInheritanceChain()
+    if (!_.includes(oldClasses, elem.conformsTo())) {
+      m.set(elemId, elem)
+    }
+  }
+  return m
+}
+
+function refillReferences(classes, elements, session) {
+  const silentProperties = new Set()
+  return Promise.all(
+      _(classes).flatMap(x => _.map(x.getAllReferences(), (ref, refName) => [x, ref, refName]))
+            .map(x => refillReference(x[2], x[0], x[1], elements, silentProperties, session))
+            .value()).then(() => elements)
+}
+
+function refillReference(refName, cls, ref, elements, silentProperties, session) {
+  if (silentProperties.has(refName)) { return undefined }
+  silentProperties.add(refName)
+  if (ref.opposite != undefined) { silentProperties.add(ref.opposite)}
+  const query = `MATCH (s:${cls.__name})-[a:${refName}]->(t:${ref.type.__name}) RETURN s, t, a`
+  return session.run(query)
+    .then(res => _.map(res.records,
+                  rec => resolveReference(refName, cls, rec.get('s'),
+                                          ref.type, rec.get('t'),
+                                          ref.associated, rec.get('a'),
+                                          elements)))
+}
+
+function resolveReference(name, srcClass, s, targetClass, t, associatedClass, a, elements) {
+  const source = resolveElement(srcClass, s, elements)
+  const target = resolveElement(targetClass, t, elements)
+  const setterName = 'add' + name[0].toUpperCase() + name.slice(1)
+  if (!_.isEmpty(a.properties)) {
+    source[setterName](target, resolveElement(associatedClass, a, elements))
+  } else {
+    source[setterName](target)
+  }
+}
+
+function resolveElement(cls, e, elements) {
+  let res = _.find(elements, x => JSMF.jsmfId(x) === e.properties.__jsmf__)
+  if (!res) {
+    res = refillAttributes(cls, e)
+    elements.push(res)
+  }
+  return res
+}
+
+function saveElements(es, session) {
+  return Promise.all(_.map(es, x => saveElement(x, session))).then(v => new Map(v))
+}
+
+function saveElement(e, session) {
+  const dry = dryElement(e)
+  const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
+  const params = '{'
+               + _.map(dry, (v, k) => `${k}: { ${k} }`).join(', ')
+               + '}'
+  const query = `CREATE (x:${classes.join(':')} ${params}) RETURN (x)`
+  return session.run(query, dry).then(v => [e, v.records[0].get(0).identity])
+}
+
+function saveRelationships(es, elemMap, session) {
+  const relations = _.flatMap(es, e => saveElemRelationships(e, elemMap, session))
+  return Promise.all(relations)
+}
+
+function saveElemRelationships(e, elemMap, session) {
+  const references = e.conformsTo().getAllReferences()
+  return _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, session))
+}
+
+function saveElemRelationship(e, ref, elemMap, session) {
+  const associated = new Map(_.map(e.getAssociated(ref), a => [a.elem, a.associated]))
+  const referenced = e[ref]
+  return _.map(referenced, t => saveRelationship(e, ref, t, associated.get(t), elemMap, session))
+}
+
+function saveRelationship(source, ref, target, associated, elemMap, session) {
+  associated = associated ? dryElement(associated) : undefined
+  const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
+                     , 'MATCH (t) WHERE id(t) in { targetId }'
+                     , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
+                     , 'RETURN r'
+                     ]
+  const sourceId = elemMap.get(source)
+  const targetId = elemMap.get(target)
+  const params = Object.assign({sourceId, targetId}, associated!==undefined?{associated}:{})
+  return session.run(statements.join(' '), params)
+}
+
+function dryElement(e) {
+  const attributes = e.conformsTo().getAllAttributes()
+  const jid = JSMF.jsmfId(e)
+  return _.reduce(attributes, function (res, a, k) {res[k] = e[k]; return res}, {__jsmf__: jid})
 }
