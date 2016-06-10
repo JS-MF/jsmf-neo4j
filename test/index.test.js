@@ -126,7 +126,7 @@ describe('saveModel', () => {
       })
   })
 
-  it('saves associated data', () => {
+  it('saves associated data attributes', () => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [], {x: Number})
     A.addReference('a', A, 1, undefined, undefined, B)
@@ -142,6 +142,24 @@ describe('saveModel', () => {
         x.records.length.should.equal(1)
         x.records[0].get('x.x').should.equal(b.x)
         x.records[0].get('x.__jsmf__').should.equal(jsmf.jsmfId(b))
+      })
+  })
+
+  it('saves associated data as a node', () => {
+    const A = new jsmf.Class('A', [])
+    const B = new jsmf.Class('B', [], {x: Number}, {a: A})
+    A.addReference('a', A, 1, undefined, undefined, B)
+    const MM = new jsmf.Model('MM', {}, A)
+    let a0 = new A()
+      , a1 = new A()
+      , b  = new B({x: 12})
+    a0.addA(a1, b)
+    b.a = a1
+    const M = new jsmf.Model('M', MM, [a0,a1])
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (a) -[x:a]-> (b) MATCH (c) WHERE x.__jsmf__ = c.__jsmf__ RETURN c'))
+      .then( x => {
+        x.records.length.should.equal(1)
       })
   })
 
@@ -287,7 +305,34 @@ describe('load models', () => {
         x.modellingElements.A[0].getAssociated('ref').length.should.equal(1)
         x.modellingElements.B[0].back.length.should.equal(1)
       })
-  
+  })
+
+  it('populate associated data with reference', () => {
+    const A = new jsmf.Class('A', [])
+    const B = new jsmf.Class('B', [])
+    const C = new jsmf.Class('C', [], {}, {a: {type: A}})
+    A.addReference('ref', B, -1, 'back', -1, C)
+    const MM = new jsmf.Model('MM', {}, [A, B, C])
+    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
+                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+                   , cId: 'CAFEEE-BEAFFF-BEAFFF-BABEEE'
+                   }
+    const dbInit =
+      [ `CREATE (a:A {__jsmf__: { aId }})-[:ref {__jsmf__: { cId }}]->(b:B {__jsmf__: { bId }})`
+      , `CREATE (d:C {__jsmf__: { cId }})-[:a]->(a)`
+      ]
+    const initDB = session.run(dbInit.join(' '), params)
+    return initDB
+      .then(() => n.loadModel(MM))
+      .then(x => {
+        x.elements().length.should.equal(3)
+        x.modellingElements.A.length.should.equal(1)
+        x.modellingElements.B.length.should.equal(1)
+        x.modellingElements.C.length.should.equal(1)
+        x.modellingElements.A[0].getAssociated('ref')[0].associated.should
+          .equal(x.modellingElements.C[0])
+        x.modellingElements.C[0].a[0].should.equal(x.modellingElements.A[0])
+      })
   })
 
   it('resolves correctly inherited attributes', () => {
@@ -348,7 +393,7 @@ describe('load models', () => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [])
     A.addReference('ref', B, -1)
-    const MM = new jsmf.Model('MM', {}, [A, B])
+    const MM = new jsmf.Model('MM', {}, [A])
     const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
                    , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
                    }

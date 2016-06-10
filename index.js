@@ -55,8 +55,9 @@ module.exports.loadModel = function loadModel(mm) {
         })
     )
     .then(elements => filterClassHierarchy(elements))
+    .then(elements => new Map(_.map(elements, e => [JSMF.jsmfId(e), e])))
     .then(elements => refillReferences(classes, elements, session))
-    .then(values => new JSMF.Model('LoadedModel', mm, values))
+    .then(values => new JSMF.Model('LoadedModel', mm, [...values.values()]))
 }
 
 function loadElements(cls, session) {
@@ -115,6 +116,7 @@ function resolveReference(name, srcClass, s, targetClass, t, associatedClass, a,
   const target = resolveElement(targetClass, t, elements)
   const setterName = 'add' + name[0].toUpperCase() + name.slice(1)
   if (!_.isEmpty(a.properties)) {
+    resolveElement(associatedClass, a, elements)
     source[setterName](target, resolveElement(associatedClass, a, elements))
   } else {
     source[setterName](target)
@@ -122,10 +124,11 @@ function resolveReference(name, srcClass, s, targetClass, t, associatedClass, a,
 }
 
 function resolveElement(cls, e, elements) {
-  let res = _.find(elements, x => JSMF.jsmfId(x) === e.properties.__jsmf__)
+  const key = e.properties.__jsmf__
+  let res = elements.get(key)
   if (!res) {
     res = refillAttributes(cls, e)
-    elements.push(res)
+    elements.set(key, res)
   }
   return res
 }
@@ -161,7 +164,6 @@ function saveElemRelationship(e, ref, elemMap, session) {
 }
 
 function saveRelationship(source, ref, target, associated, elemMap, session) {
-  associated = associated ? dryElement(associated) : undefined
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
                      , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
@@ -169,6 +171,13 @@ function saveRelationship(source, ref, target, associated, elemMap, session) {
                      ]
   const sourceId = elemMap.get(source)
   const targetId = elemMap.get(target)
+  if (associated !== undefined) {
+    const associatedId = elemMap.get(associated)
+    if (associatedId === undefined) {
+      saveElement(associated, session)
+    }
+    associated = associated ? dryElement(associated) : undefined
+  }
   const params = Object.assign({sourceId, targetId}, associated!==undefined?{associated}:{})
   return session.run(statements.join(' '), params)
 }
