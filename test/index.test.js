@@ -15,8 +15,9 @@ function initNeo4jConnector(done) {
   driver = neo4j.driver(url, neo4j.auth.basic(username, password))
   session = driver.session()
   n(url, username, password)
+  n.initStorage()
 
-  session.run("MATCH (n) DETACH DELETE n").then(() => done())
+  session.run('MATCH (n) DETACH DELETE n').then(() => done())
 }
 
 function closeNeo4j() {
@@ -35,6 +36,17 @@ describe('saveModel', () => {
     let a = new A()
     const M = new jsmf.Model('M', MM, [a])
     return n.saveModel(M)
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
+      .then( x => x.records.length.should.equal(1))
+  })
+
+  it('is idempotent on two saves', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    return n.saveModel(M)
+      .then(() => n.saveModel(M))
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
       .then( x => x.records.length.should.equal(1))
   })

@@ -35,6 +35,13 @@ module.exports = function init(url, user, password) {
 
 module.exports.close = () => driver.close()
 
+module.exports.initStorage = () => {
+  const existence = 'CREATE CONSTRAINT ON (a:JSMF) ASSERT exists(a.__jsmf__)'
+  const uniqueness = 'CREATE CONSTRAINT ON (a:JSMF) ASSERT a.__jsmf__ IS UNIQUE'
+  const session = driver.session()
+  session.run([existence, uniqueness].join(' '))
+}
+
 module.exports.saveModel = function saveModel(m) {
   const elements = m.elements()
   const session = driver.session()
@@ -69,7 +76,13 @@ function refillAttributes(cls, e) {
   const res = cls.newInstance()
   _.forEach(cls.getAllAttributes(), (t, x) => res[x] = e.properties[x])
   res.__jsmf__.uuid = e.properties.__jsmf__
+  setAsStored(res)
   return res
+}
+
+function setAsStored(e) {
+  e.__jsmf__.storedIn = e.__jsmf__.storedIn ||  []
+  e.__jsmf__.storedIn.push(driver._url)
 }
 
 function filterClassHierarchy(elements) {
@@ -140,11 +153,10 @@ function saveElements(es, session) {
 function saveElement(e, session) {
   const dry = dryElement(e)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
-  const params = '{'
-               + _.map(dry, (v, k) => `${k}: { ${k} }`).join(', ')
-               + '}'
-  const query = `CREATE (x:${classes.join(':')} ${params}) RETURN (x)`
-  return session.run(query, dry).then(v => [e, v.records[0].get(0).identity])
+  classes.push('JSMF')
+  const query = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
+  return session.run(query, {params: dry, jsmfId: dry.__jsmf__})
+    .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
 }
 
 function saveRelationships(es, elemMap, session) {
