@@ -1,6 +1,6 @@
 {
   "name": "jsmf-neo4j",
-  "version": "0.2",
+  "version": "0.2.0",
   "description": "JSMF Neo4J Connector",
   "main": "index.js",
   "directories": {
