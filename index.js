@@ -19,6 +19,7 @@ TODO:
 const neo4j = require('neo4j-driver').v1
     , _ = require('lodash')
     , JSMF = require('jsmf-core')
+    , uuid = require('uuid')
 
 
 let driver
@@ -81,8 +82,7 @@ function refillAttributes(cls, e) {
 }
 
 function setAsStored(e) {
-  e.__jsmf__.storedIn = e.__jsmf__.storedIn ||  []
-  e.__jsmf__.storedIn.push(driver._url)
+  e.__jsmf__.storedIn = driver._url
 }
 
 function filterClassHierarchy(elements) {
@@ -154,9 +154,26 @@ function saveElement(e, session) {
   const dry = dryElement(e)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
   classes.push('JSMF')
-  const query = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
-  return session.run(query, {params: dry, jsmfId: dry.__jsmf__})
+  if (e.__jsmf__.storedIn === driver._url) {
+    const query = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
+    return session.run(query, {params: dry, jsmfId: dry.__jsmf__})
+      .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
+  } else {
+    const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
+    return session.run(query, {params: dry})
+      .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
+      .catch(() => storeDuplicatedIdElement(classes, e, dry, session))
+  }
+}
+
+function storeDuplicatedIdElement(classes, e, dry, session) {
+  const newId = uuid.v4()
+  e.__jsmf__.uuid = newId
+  dry.__jsmf__ = newId
+  const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
+  return session.run(query, {params: dry})
     .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
+    .catch(() => storeDuplicatedIdElement(classes, e, dry, session))
 }
 
 function saveRelationships(es, elemMap, session) {

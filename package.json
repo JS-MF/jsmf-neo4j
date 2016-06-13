@@ -24,7 +24,8 @@
   "dependencies": {
     "jsmf-core": "git+ssh://git@git.list.lu:jsmf/jsmf-core.git#0.6.0",
     "lodash": "^4.1.0",
-    "neo4j-driver": "^1.0.1"
+    "neo4j-driver": "^1.0.1",
+    "uuid": "^2.0.2"
   },
   "devDependencies": {
     "eyes": "~0.1.8",

@@ -51,6 +51,31 @@ describe('saveModel', () => {
       .then( x => x.records.length.should.equal(1))
   })
 
+  it('updates on second save', () => {
+    const A = new jsmf.Class('A', [], {x: Number})
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A({x: 12})
+    const M = new jsmf.Model('M', MM, [a])
+    return n.saveModel(M)
+      .then(() => n.saveModel(M))
+      .then(() => { a.x = 24; return n.saveModel(M)})
+      .then(() => session.run('MATCH (a:A {x: {x}}) RETURN (a)', {x: 24}))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('changes uuid if duplicates', () => {
+    const A = new jsmf.Class('A', [], {x: Number})
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A({x: 12})
+    let b = new A({x: 24})
+    b.__jsmf__.uuid = a.__jsmf__.uuid
+    const M = new jsmf.Model('M', MM, [a, b])
+    return n.saveModel(M)
+      .then(() => n.saveModel(M))
+      .then(() => session.run('MATCH (a:A) RETURN (a)'))
+      .then(x => x.records.length.should.equal(2))
+  })
+
   it('saves class hierarchy', () => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [])
