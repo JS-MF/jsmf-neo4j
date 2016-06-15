@@ -53,7 +53,7 @@ module.exports.saveModel = function saveModel(m) {
 
 module.exports.loadModel = function loadModel(mm) {
   const session = driver.session()
-  const classes = _.map(mm.modellingElements, x => x[0])
+  const classes = _.map(mm.classes, x => x[0])
   return Promise.all(_.map(classes, k => loadElements(k, session)))
     .then(elementsByClass =>
         _.flatMap(elementsByClass, elements => {
@@ -63,7 +63,7 @@ module.exports.loadModel = function loadModel(mm) {
         })
     )
     .then(elements => filterClassHierarchy(elements))
-    .then(elements => new Map(_.map(elements, e => [JSMF.jsmfId(e), e])))
+    .then(elements => new Map(_.map(elements, e => [uuid.unparse(JSMF.jsmfId(e)), e])))
     .then(elements => refillReferences(classes, elements, session))
     .then(values => new JSMF.Model('LoadedModel', mm, [...values.values()]))
 }
@@ -76,7 +76,7 @@ function loadElements(cls, session) {
 function refillAttributes(cls, e) {
   const res = cls.newInstance()
   _.forEach(cls.getAllAttributes(), (t, x) => res[x] = e.properties[x])
-  res.__jsmf__.uuid = e.properties.__jsmf__
+  res.__jsmf__.uuid = uuid.parse(e.properties.__jsmf__)
   setAsStored(res)
   return res
 }
@@ -91,7 +91,7 @@ function filterClassHierarchy(elements) {
 }
 
 function checkElement(m, elem) {
-  const elemId = JSMF.jsmfId(elem)
+  const elemId = uuid.unparse(JSMF.jsmfId(elem))
   const old = m.get(elemId)
   if (old === undefined) { m.set(elemId, elem) }
   else {
@@ -129,8 +129,8 @@ function resolveReference(name, srcClass, s, targetClass, t, associatedClass, a,
   const target = resolveElement(targetClass, t, elements)
   const setterName = 'add' + name[0].toUpperCase() + name.slice(1)
   if (!_.isEmpty(a.properties)) {
-    resolveElement(associatedClass, a, elements)
-    source[setterName](target, resolveElement(associatedClass, a, elements))
+    const associated = resolveElement(associatedClass, a, elements)
+    source[setterName](target, associated)
   } else {
     source[setterName](target)
   }
@@ -167,9 +167,9 @@ function saveElement(e, session) {
 }
 
 function storeDuplicatedIdElement(classes, e, dry, session) {
-  const newId = uuid.v4()
+  const newId = JSMF.generateId()
   e.__jsmf__.uuid = newId
-  dry.__jsmf__ = newId
+  dry.__jsmf__ = uuid.unparse(newId)
   const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
   return session.run(query, {params: dry})
     .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
@@ -213,6 +213,6 @@ function saveRelationship(source, ref, target, associated, elemMap, session) {
 
 function dryElement(e) {
   const attributes = e.conformsTo().getAllAttributes()
-  const jid = JSMF.jsmfId(e)
+  const jid = uuid.unparse(JSMF.jsmfId(e))
   return _.reduce(attributes, function (res, a, k) {res[k] = e[k]; return res}, {__jsmf__: jid})
 }

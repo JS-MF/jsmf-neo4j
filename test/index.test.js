@@ -3,11 +3,16 @@
 const should = require('should')
     , neo4j = require('neo4j-driver').v1
     , jsmf = require('jsmf-core')
+    , uuid = require('uuid')
     , n = require('../index')
 
 const url = 'bolt://localhost'
 const username = 'neo4j'
 const password = 'neo4j'
+
+const uuid1 = uuid.unparse(jsmf.generateId())
+const uuid2 = uuid.unparse(jsmf.generateId())
+const uuid3 = uuid.unparse(jsmf.generateId())
 
 let driver, session
 
@@ -35,8 +40,9 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
     const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -45,9 +51,10 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
     const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
       .then(() => n.saveModel(M))
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -83,8 +90,9 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, [A,B,C])
     let a = new C()
     const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a:A:B:C {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a:A:B:C {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -93,8 +101,9 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12})
     const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a), x: a.x}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId, x: a.x}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -103,8 +112,9 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12, y: 'ahoy'})
     const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a), x: a.x, y: a.y}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId, x: a.x, y: a.y}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -114,10 +124,12 @@ describe('saveModel', () => {
     let a = new A()
       , b = new A()
     const M = new jsmf.Model('M', MM, [a,b])
+    const jsmfIdA = uuid.unparse(jsmf.jsmfId(a))
+        , jsmfIdB = uuid.unparse(jsmf.jsmfId(b))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfIdA}}) RETURN (a)', {jsmfIdA}))
       .then( x => x.records.length.should.equal(1))
-      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId: jsmf.jsmfId(b)}))
+      .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfIdB}}) RETURN (a)', {jsmfIdB}))
       .then( x => x.records.length.should.equal(1))
   })
 
@@ -129,12 +141,14 @@ describe('saveModel', () => {
       , b = new A()
     a.a = b
     const M = new jsmf.Model('M', MM, [a,b])
+    const jsmfIdA = uuid.unparse(jsmf.jsmfId(a))
+        , jsmfIdB = uuid.unparse(jsmf.jsmfId(b))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a) -[:a]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a) -[:a]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfIdA}))
       .then( x => {
         x.records.length.should.equal(1)
-        x.records[0].get('a.__jsmf__').should.equal(jsmf.jsmfId(a))
-        x.records[0].get('b.__jsmf__').should.equal(jsmf.jsmfId(b))
+        x.records[0].get('a.__jsmf__').should.equal(jsmfIdA)
+        x.records[0].get('b.__jsmf__').should.equal(jsmfIdB)
       })
   })
 
@@ -148,18 +162,20 @@ describe('saveModel', () => {
     a.a = b
     a.b = b
     const M = new jsmf.Model('M', MM, [a,b])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    const jsmfIdB = uuid.unparse(jsmf.jsmfId(b))
     return n.saveModel(M)
-      .then(() => session.run('MATCH (a) -[:a]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a) -[:a]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId}))
       .then( x => {
         x.records.length.should.equal(1)
-        x.records[0].get('a.__jsmf__').should.equal(jsmf.jsmfId(a))
-        x.records[0].get('b.__jsmf__').should.equal(jsmf.jsmfId(b))
+        x.records[0].get('a.__jsmf__').should.equal(jsmfId)
+        x.records[0].get('b.__jsmf__').should.equal(jsmfIdB)
       })
-      .then(() => session.run('MATCH (a) -[:b]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId: jsmf.jsmfId(a)}))
+      .then(() => session.run('MATCH (a) -[:b]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId}))
       .then( x => {
         x.records.length.should.equal(1)
-        x.records[0].get('a.__jsmf__').should.equal(jsmf.jsmfId(a))
-        x.records[0].get('b.__jsmf__').should.equal(jsmf.jsmfId(b))
+        x.records[0].get('a.__jsmf__').should.equal(jsmfId)
+        x.records[0].get('b.__jsmf__').should.equal(jsmfIdB)
       })
   })
 
@@ -173,12 +189,13 @@ describe('saveModel', () => {
       , b  = new B({x: 12})
     a0.addA(a1, b)
     const M = new jsmf.Model('M', MM, [a0,a1])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(b))
     return n.saveModel(M)
       .then(() => session.run('MATCH (a) -[x:a]-> (b) RETURN x.x, x.__jsmf__'))
       .then( x => {
         x.records.length.should.equal(1)
         x.records[0].get('x.x').should.equal(b.x)
-        x.records[0].get('x.__jsmf__').should.equal(jsmf.jsmfId(b))
+        x.records[0].get('x.__jsmf__').should.equal(jsmfId)
       })
   })
 
@@ -226,21 +243,21 @@ describe('load models', () => {
   it('loads a simple element', () => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, [A])
-    const elemId = 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
+    const elemId = uuid1
     const initDB = session.run(`CREATE (a:A {__jsmf__: { elemId }})`, {elemId})
     return initDB
       .then(() => n.loadModel(MM))
       .then(x => {
         x.elements().length.should.equal(1)
         x.modellingElements.A.length.should.equal(1)
-        jsmf.jsmfId(x.modellingElements.A[0]).should.equal(elemId)
+        jsmf.jsmfId(x.modellingElements.A[0]).should.eql(uuid.parse(elemId))
       })
   })
 
   it('loads an element with a single property', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = {elemId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE', elemX: 12}
+    const params = {elemId: uuid1, elemX: 12}
     const initDB = session.run(`CREATE (a:A {__jsmf__: { elemId }, x: { elemX }})`, params)
     return initDB
       .then(() => n.loadModel(MM))
@@ -254,7 +271,7 @@ describe('load models', () => {
   it('loads an element with properties', () => {
     const A = new jsmf.Class('A', [], {x: Number, y: String})
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = {elemId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE', x: 12, y: 'foo'}
+    const params = {elemId: uuid1, x: 12, y: 'foo'}
     const initDB = session.run(`CREATE (a:A {__jsmf__: { elemId }, x: { x }, y: { y }})`, params)
     return initDB
       .then(() => n.loadModel(MM))
@@ -270,8 +287,8 @@ describe('load models', () => {
     const A = new jsmf.Class('A', [])
     A.addReference('ref', A, -1)
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+    const params = { aId: uuid1.toLowerCase()
+                   , bId: uuid2.toLowerCase()
                    }
     const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:A {__jsmf__: { bId }})`, params)
     return initDB
@@ -288,8 +305,8 @@ describe('load models', () => {
     const A = new jsmf.Class('A', [])
     A.addReference('ref', A, -1)
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
                    }
     const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:A {__jsmf__: { bId }})`, params)
     return initDB
@@ -306,8 +323,8 @@ describe('load models', () => {
     const B = new jsmf.Class('B', [])
     A.addReference('ref', B, -1, 'back', -1)
     const MM = new jsmf.Model('MM', {}, [A, B])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
                    }
     const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:B {__jsmf__: { bId }}) CREATE (a)<-[:back]-(b)`, params)
     return initDB
@@ -327,9 +344,9 @@ describe('load models', () => {
     const C = new jsmf.Class('C', [])
     A.addReference('ref', B, -1, 'back', -1, C)
     const MM = new jsmf.Model('MM', {}, [A, B])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
-                   , cId: 'CAFEEE-BEAFFF-BEAFFF-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
+                   , cId: uuid3
                    }
     const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref {__jsmf__: { cId }}]->(b:B {__jsmf__: { bId }})`, params)
     return initDB
@@ -350,9 +367,9 @@ describe('load models', () => {
     const C = new jsmf.Class('C', [], {}, {a: {type: A}})
     A.addReference('ref', B, -1, 'back', -1, C)
     const MM = new jsmf.Model('MM', {}, [A, B, C])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
-                   , cId: 'CAFEEE-BEAFFF-BEAFFF-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
+                   , cId: uuid3
                    }
     const dbInit =
       [ `CREATE (a:A {__jsmf__: { aId }})-[:ref {__jsmf__: { cId }}]->(b:B {__jsmf__: { bId }})`
@@ -376,7 +393,7 @@ describe('load models', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [B])
-    const params = {elemId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE', elemX: 12}
+    const params = {elemId: uuid1, elemX: 12}
     const initDB = session.run(`CREATE (a:B:A {__jsmf__: { elemId }, x: { elemX }})`, params)
     return initDB
       .then(() => n.loadModel(MM))
@@ -393,8 +410,8 @@ describe('load models', () => {
     A.addReference('ref', C, -1, 'back', -1)
     const B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [B,C])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
                    }
     const initDB = session.run(`CREATE (a:A:B {__jsmf__: { aId }})-[:ref]->(b:C {__jsmf__: { bId }}) CREATE (a)<-[:back]-(b)`, params)
     return initDB
@@ -413,7 +430,7 @@ describe('load models', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [A,B])
-    const params = {idA: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE', xA: 12, idB: 'BABEEE-CAFEEE-BABEEE-CAFEEE', xB: 42}
+    const params = {idA: uuid1, xA: 12, idB: uuid2, xB: 42}
     const initDB = session.run(`CREATE (a:A {__jsmf__: { idA }, x: { xA }}) CREATE (b:B:A {__jsmf__: { idB }, x: { xB }})`, params)
     return initDB
       .then(() => n.loadModel(MM))
@@ -431,8 +448,8 @@ describe('load models', () => {
     const B = new jsmf.Class('B', [])
     A.addReference('ref', B, -1)
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = { aId: 'CAFEEE-CAFEEE-CAFEEE-CAFEEE'
-                   , bId: 'CAFEEE-BABEEE-CAFEEE-BABEEE'
+    const params = { aId: uuid1
+                   , bId: uuid2
                    }
     const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:B {__jsmf__: { bId }})`, params)
     return initDB
