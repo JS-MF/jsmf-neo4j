@@ -18,6 +18,7 @@ before_script:
   - echo 'deb http://debian.neo4j.org/repo stable/' >/tmp/neo4j.list
   - mv /tmp/neo4j.list /etc/apt/sources.list.d
   - apt-get update
+  - apt-get install openjdk-8-jdk
   - apt-get install neo4j
   - neo4j start
 test:
