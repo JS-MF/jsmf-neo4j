@@ -13,14 +13,16 @@ before_script:
   - mkdir -p ~/.ssh
   - '[[ -f /.dockerenv ]] && echo -e "Host *\n\tStrictHostKeyChecking no\n\n" > ~/.ssh/config'
   
-  - apt-get update -qq && apt-get install -y nodejs && npm install
   - wget -O - https://debian.neo4j.org/neotechnology.gpg.key | apt-key add -
   - echo 'deb http://debian.neo4j.org/repo stable/' >/tmp/neo4j.list
+  - echo 'deb http://ftp.debian.org/debian jessie-backports main' >/tmp/jessie-backport.list
   - mv /tmp/neo4j.list /etc/apt/sources.list.d
+  - mv /tmp/jessie-backport.list /etc/apt/sources.list.d
   - apt-get update
-  - apt-get install openjdk-8-jdk
-  - apt-get install neo4j
+  - apt-get install -y neo4j
+  - echo "dbms.security.auth_enabled=false" >> /etc/neo4j/neo4j.conf
   - neo4j start
+  - npm install
 test:
   script:
     - npm test
