@@ -155,8 +155,10 @@ function saveElement(e, session) {
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
   classes.push('JSMF')
   if (e.__jsmf__.storedIn === driver._url) {
-    const query = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
-    return session.run(query, {params: dry, jsmfId: dry.__jsmf__})
+    const clean = 'MATCH (x {__jsmf__: {jsmfId}}) DETACH DELETE x'
+    const update = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
+    return session.run(clean, {jsmfId: dry.__jsmf__})
+      .then(() => session.run(update, {params: dry, jsmfId: dry.__jsmf__}))
       .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
   } else {
     const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`

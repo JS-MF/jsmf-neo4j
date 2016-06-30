@@ -58,7 +58,7 @@ describe('saveModel', () => {
       .then( x => x.records.length.should.equal(1))
   })
 
-  it('updates on second save', () => {
+  it('updates attributes on second save', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12})
@@ -70,6 +70,25 @@ describe('saveModel', () => {
       .then(x => x.records.length.should.equal(1))
   })
 
+  it('updates ref on second save', () => {
+    const A = new jsmf.Class('A', [], {x: Number})
+    const B = new jsmf.Class('B', [], {}, {a: A})
+    const MM = new jsmf.Model('MM', {}, A)
+    const a0 = new A({x: 0})
+        , a1 = new A({x: 1})
+    const b = new B({a: a0})
+    const M = new jsmf.Model('M', MM, [b, a0, a1])
+    return n.saveModel(M)
+      .then(() => n.saveModel(M))
+      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
+      .then(x => x.records.length.should.equal(1))
+      .then(() => { b.a = a1; return n.saveModel(M)})
+      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
+      .then(x => x.records.length.should.equal(0))
+      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 1}))
+      .then(x => x.records.length.should.equal(1))
+  })
+
   it('changes uuid if duplicates', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, A)
@@ -78,7 +97,6 @@ describe('saveModel', () => {
     b.__jsmf__.uuid = a.__jsmf__.uuid
     const M = new jsmf.Model('M', MM, [a, b])
     return n.saveModel(M)
-      .then(() => n.saveModel(M))
       .then(() => session.run('MATCH (a:A) RETURN (a)'))
       .then(x => x.records.length.should.equal(2))
   })
