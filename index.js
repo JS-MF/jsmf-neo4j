@@ -18,9 +18,9 @@ TODO:
 
 const neo4j = require('neo4j-driver').v1
     , _ = require('lodash')
-    , JSMF = require('jsmf-core')
+    , jsmf = require('jsmf-core')
     , uuid = require('uuid')
-
+    , r = require('./src/reify')
 
 let driver
 
@@ -43,11 +43,15 @@ module.exports.initStorage = () => {
   session.run([existence, uniqueness].join(' '))
 }
 
-module.exports.saveModel = function saveModel(m) {
+module.exports.saveModel = function saveModel(m, ownTypes) {
   const elements = m.elements()
+  elements.push(m)
   const session = driver.session()
-  return saveElements(elements, session)
-    .then(m => saveRelationships(elements, m, session))
+  const mm = m.referenceModel
+  if (mm instanceof jsmf.Model) {module.exports.saveModel(mm, ownTypes)}
+  const reified = new Map()
+  return saveElements(elements, reified, ownTypes, session)
+    .then(m => saveRelationships(elements, m, reified, ownTypes, session))
     .then(() => session.close())
 }
 
@@ -63,9 +67,9 @@ module.exports.loadModel = function loadModel(mm) {
         })
     )
     .then(elements => filterClassHierarchy(elements))
-    .then(elements => new Map(_.map(elements, e => [uuid.unparse(JSMF.jsmfId(e)), e])))
+    .then(elements => new Map(_.map(elements, e => [uuid.unparse(jsmf.jsmfId(e)), e])))
     .then(elements => refillReferences(classes, elements, session))
-    .then(values => new JSMF.Model('LoadedModel', mm, [...values.values()]))
+    .then(values => new jsmf.Model('LoadedModel', mm, [...values.values()]))
 }
 
 function loadElements(cls, session) {
@@ -91,7 +95,7 @@ function filterClassHierarchy(elements) {
 }
 
 function checkElement(m, elem) {
-  const elemId = uuid.unparse(JSMF.jsmfId(elem))
+  const elemId = uuid.unparse(jsmf.jsmfId(elem))
   const old = m.get(elemId)
   if (old === undefined) { m.set(elemId, elem) }
   else {
@@ -146,12 +150,13 @@ function resolveElement(cls, e, elements) {
   return res
 }
 
-function saveElements(es, session) {
-  return Promise.all(_.map(es, x => saveElement(x, session))).then(v => new Map(v))
+function saveElements(es, reified, ownTypes, session) {
+  return Promise.all(_.map(es, x => saveElement(x, reified, ownTypes, session))).then(v => new Map(v))
 }
 
-function saveElement(e, session) {
-  const dry = dryElement(e)
+function saveElement(elt, reified, ownTypes, session) {
+  const e = reifyMetaElement(elt, reified, ownTypes)
+  const dry = dryElement(e, ownTypes)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
   classes.push('JSMF')
   if (e.__jsmf__.storedIn === driver._url) {
@@ -163,13 +168,13 @@ function saveElement(e, session) {
   } else {
     const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
     return session.run(query, {params: dry})
-      .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
       .catch(() => storeDuplicatedIdElement(classes, e, dry, session))
+      .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
   }
 }
 
 function storeDuplicatedIdElement(classes, e, dry, session) {
-  const newId = JSMF.generateId()
+  const newId = jsmf.generateId()
   e.__jsmf__.uuid = newId
   dry.__jsmf__ = uuid.unparse(newId)
   const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
@@ -178,23 +183,24 @@ function storeDuplicatedIdElement(classes, e, dry, session) {
     .catch(() => storeDuplicatedIdElement(classes, e, dry, session))
 }
 
-function saveRelationships(es, elemMap, session) {
-  const relations = _.flatMap(es, e => saveElemRelationships(e, elemMap, session))
+function saveRelationships(es, elemMap, reified, ownTypes, session) {
+  const relations = _.flatMap(es, e => saveElemRelationships(e, elemMap, reified, ownTypes, session))
   return Promise.all(relations)
 }
 
-function saveElemRelationships(e, elemMap, session) {
+function saveElemRelationships(elt, elemMap, reified, ownTypes, session) {
+  const e = reifyMetaElement(elt, reified)
   const references = e.conformsTo().getAllReferences()
-  return _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, session))
+  return _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, reified, ownTypes, session))
 }
 
-function saveElemRelationship(e, ref, elemMap, session) {
+function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session) {
   const associated = new Map(_.map(e.getAssociated(ref), a => [a.elem, a.associated]))
   const referenced = e[ref]
-  return _.map(referenced, t => saveRelationship(e, ref, t, associated.get(t), elemMap, session))
+  return _.map(referenced, t => saveRelationship(e, ref, t, associated.get(t), elemMap, reified, ownTypes, session))
 }
 
-function saveRelationship(source, ref, target, associated, elemMap, session) {
+function saveRelationship(source, ref, target, associated, elemMap, reified, ownTypes, session) {
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
                      , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
@@ -205,7 +211,7 @@ function saveRelationship(source, ref, target, associated, elemMap, session) {
   if (associated !== undefined) {
     const associatedId = elemMap.get(associated)
     if (associatedId === undefined) {
-      saveElement(associated, session)
+      saveElement(associated, reified, ownTypes, session)
     }
     associated = associated ? dryElement(associated) : undefined
   }
@@ -215,6 +221,15 @@ function saveRelationship(source, ref, target, associated, elemMap, session) {
 
 function dryElement(e) {
   const attributes = e.conformsTo().getAllAttributes()
-  const jid = uuid.unparse(JSMF.jsmfId(e))
+  const jid = uuid.unparse(jsmf.jsmfId(e))
   return _.reduce(attributes, function (res, a, k) {res[k] = e[k]; return res}, {__jsmf__: jid})
+}
+
+function reifyMetaElement(elt, reified, ownTypes) {
+  const cached = reified.get(elt)
+  return cached
+    || r.reifyModel(elt, reified, ownTypes)
+    || r.reifyClass(elt, reified, ownTypes)
+    || r.reifyEnum(elt, reified, ownTypes)
+    || elt
 }
