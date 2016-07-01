@@ -30,7 +30,7 @@ const Class = new jsmf.Class('Class', Meta,
     {attributes: {type: Attribute}, references: {type: Reference}})
 Class.addReference('superClasses', Class)
 
-const Model = new jsmf.Class('Model', Meta, {name: {type: String, mandatory: true}}, {elements: {type: jsmf.Any}})
+const Model = new jsmf.Class('Model', Meta, {name: {type: String, mandatory: true}}, {elements: {type: jsmf.JSMFAny}})
 
 
 Reference.addReference('type', Class, jsmf.Cardinality.one)
@@ -49,12 +49,16 @@ function reifyEnum(e, mapping) {
   return result
 }
 
-function reifyModel(m) {
+function reifyModel(m, mapping) {
   if (!(m instanceof jsmf.Model)) {return undefined}
+  const mId = uuid.unparse(jsmf.jsmfId(m))
+  const cache = mapping.get(mId)
+  if (cache != undefined) { return cache }
   const result = new Model({name: m.__name})
-  result.elements = _(m.modellingElements).flatten().value()
+  result.elements = _(m.modellingElements).values().flatten().value()
   result.__jsmf__.uuid = jsmf.jsmfId(m)
   result.__jsmf__.storeIn = m.__jsmf__.storeIn
+  mapping.set(mId, result)
   return result
 }
 
@@ -84,13 +88,14 @@ function reifyAttribute(name, a, mapping, ownTypes) {
 }
 
 function reifyReference(name, r, mapping, ownTypes) {
-  return new Reference(
+  const result = new Reference(
     { name
     , min: r.cardinality.min
     , max: r.cardinality.max
     , opposite: r.opposite
     , type: reifyClass(r.type, mapping, ownTypes)
     })
+  return result
 }
 
 function reifyPrimitiveType(t, ownTypes) {

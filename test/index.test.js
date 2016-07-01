@@ -43,7 +43,37 @@ describe('saveModel', () => {
     const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
-      .then( x => x.records.length.should.equal(1))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves metamodel', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (a:Meta {name: "MM"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves classes', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Class {name: "A"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves relationship between models and elements', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (m:Model)-[:elements]->(a:A {__jsmf__: {jsmfId}}) RETURN (m)', {jsmfId}))
+      .then(x => x.records.length.should.equal(1))
   })
 
   it('is idempotent on two saves', () => {
@@ -79,13 +109,12 @@ describe('saveModel', () => {
     const b = new B({a: a0})
     const M = new jsmf.Model('M', MM, [b, a0, a1])
     return n.saveModel(M)
-      .then(() => n.saveModel(M))
-      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
+      .then(() => session.run('MATCH (a:B)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
       .then(x => x.records.length.should.equal(1))
       .then(() => { b.a = a1; return n.saveModel(M)})
-      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
+      .then(() => session.run('MATCH (a:B)-[]->(b {x: {x}}) RETURN (a)', {x: 0}))
       .then(x => x.records.length.should.equal(0))
-      .then(() => session.run('MATCH (a)-[]->(b {x: {x}}) RETURN (a)', {x: 1}))
+      .then(() => session.run('MATCH (a:B)-[]->(b {x: {x}}) RETURN (a)', {x: 1}))
       .then(x => x.records.length.should.equal(1))
   })
 

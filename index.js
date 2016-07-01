@@ -200,7 +200,8 @@ function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session) {
   return _.map(referenced, t => saveRelationship(e, ref, t, associated.get(t), elemMap, reified, ownTypes, session))
 }
 
-function saveRelationship(source, ref, target, associated, elemMap, reified, ownTypes, session) {
+function saveRelationship(source, ref, t, associated, elemMap, reified, ownTypes, session) {
+  const target = reifyMetaElement(t, reified)
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
                      , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
@@ -222,7 +223,14 @@ function saveRelationship(source, ref, target, associated, elemMap, reified, own
 function dryElement(e) {
   const attributes = e.conformsTo().getAllAttributes()
   const jid = uuid.unparse(jsmf.jsmfId(e))
-  return _.reduce(attributes, function (res, a, k) {res[k] = e[k]; return res}, {__jsmf__: jid})
+  return _.reduce(attributes,
+    function (res, a, k) {
+      if (e[k] !== undefined) {
+        res[k] = e[k]
+        return res
+      }
+    },
+    {__jsmf__: jid})
 }
 
 function reifyMetaElement(elt, reified, ownTypes) {
