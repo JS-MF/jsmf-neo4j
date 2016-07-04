@@ -30,12 +30,12 @@ function closeNeo4j() {
   n.close()
 }
 
-describe('saveModel', () => {
+describe('saveModel', done => {
 
   beforeEach(initNeo4jConnector)
   afterEach(closeNeo4j)
 
-  it('saves element', () => {
+  it('saves element', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
@@ -44,9 +44,10 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves metamodel', () => {
+  it('saves metamodel', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
@@ -55,17 +56,28 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:Meta {name: "MM"}) RETURN (a)'))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves classes', () => {
+  it('saves classes', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     return n.saveModel(MM)
       .then(() => session.run('MATCH (a:Class {name: "A"}) RETURN (a)'))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves relationship between models and elements', () => {
+  it('saves class attributes', done => {
+    const A = new jsmf.Class('A', [], {x:Number})
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Class {name: "A"})-[:attributes]->(b:Attribute {name: "x"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+      .then(() => done())
+  })
+
+  it('saves modellingElements', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
@@ -74,9 +86,22 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (m:Model)-[:elements]->(a:A {__jsmf__: {jsmfId}}) RETURN (m)', {jsmfId}))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('is idempotent on two saves', () => {
+  it('saves relationship between models and elements', done => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (m:Model)-[:elements]->(a:A {__jsmf__: {jsmfId}}) RETURN (m)', {jsmfId}))
+      .then(x => x.records.length.should.equal(1))
+      .then(() => done())
+  })
+
+  it('is idempotent on two saves', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
@@ -86,9 +111,10 @@ describe('saveModel', () => {
       .then(() => n.saveModel(M))
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then( x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('updates attributes on second save', () => {
+  it('updates attributes on second save', done => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12})
@@ -98,9 +124,10 @@ describe('saveModel', () => {
       .then(() => { a.x = 24; return n.saveModel(M)})
       .then(() => session.run('MATCH (a:A {x: {x}}) RETURN (a)', {x: 24}))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('updates ref on second save', () => {
+  it('updates ref on second save', done => {
     const A = new jsmf.Class('A', [], {x: Number})
     const B = new jsmf.Class('B', [], {}, {a: A})
     const MM = new jsmf.Model('MM', {}, A)
@@ -116,9 +143,10 @@ describe('saveModel', () => {
       .then(x => x.records.length.should.equal(0))
       .then(() => session.run('MATCH (a:B)-[]->(b {x: {x}}) RETURN (a)', {x: 1}))
       .then(x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('changes uuid if duplicates', () => {
+  it('changes uuid if duplicates', done => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12})
@@ -128,9 +156,10 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A) RETURN (a)'))
       .then(x => x.records.length.should.equal(2))
+      .then(() => done())
   })
 
-  it('saves class hierarchy', () => {
+  it('saves class hierarchy', done => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [])
     const C = new jsmf.Class('C', [A,B])
@@ -141,9 +170,10 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A:B:C {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
       .then( x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves one attribute element', () => {
+  it('saves one attribute element', done => {
     const A = new jsmf.Class('A', [], {x: Number})
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12})
@@ -152,9 +182,10 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId, x: a.x}))
       .then( x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves several attributes element', () => {
+  it('saves several attributes element', done => {
     const A = new jsmf.Class('A', [], {x: Number, y: String})
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A({x: 12, y: 'ahoy'})
@@ -163,9 +194,10 @@ describe('saveModel', () => {
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}, x: {x}}) RETURN (a)', {jsmfId, x: a.x, y: a.y}))
       .then( x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves several elements', () => {
+  it('saves several elements', done => {
     const A = new jsmf.Class('A', [])
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
@@ -178,9 +210,10 @@ describe('saveModel', () => {
       .then( x => x.records.length.should.equal(1))
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfIdB}}) RETURN (a)', {jsmfIdB}))
       .then( x => x.records.length.should.equal(1))
+      .then(() => done())
   })
 
-  it('saves elem with a reference', () => {
+  it('saves elem with a reference', done => {
     const A = new jsmf.Class('A', [])
     A.addReference('a', A, 1)
     const MM = new jsmf.Model('MM', {}, A)
@@ -197,9 +230,10 @@ describe('saveModel', () => {
         x.records[0].get('a.__jsmf__').should.equal(jsmfIdA)
         x.records[0].get('b.__jsmf__').should.equal(jsmfIdB)
       })
+      .then(() => done())
   })
 
-  it('saves elem with references', () => {
+  it('saves elem with references', done => {
     const A = new jsmf.Class('A', [])
     A.addReference('a', A, 1)
     A.addReference('b', A, 1)
@@ -224,9 +258,10 @@ describe('saveModel', () => {
         x.records[0].get('a.__jsmf__').should.equal(jsmfId)
         x.records[0].get('b.__jsmf__').should.equal(jsmfIdB)
       })
+      .then(() => done())
   })
 
-  it('saves associated data attributes', () => {
+  it('saves associated data attributes', done => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [], {x: Number})
     A.addReference('a', A, 1, undefined, undefined, B)
@@ -244,9 +279,10 @@ describe('saveModel', () => {
         x.records[0].get('x.x').should.equal(b.x)
         x.records[0].get('x.__jsmf__').should.equal(jsmfId)
       })
+      .then(() => done())
   })
 
-  it('saves associated data as a node', () => {
+  it('saves associated data as a node', done => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [], {x: Number}, {a: A})
     A.addReference('a', A, 1, undefined, undefined, B)
@@ -262,9 +298,10 @@ describe('saveModel', () => {
       .then( x => {
         x.records.length.should.equal(1)
       })
+      .then(() => done())
   })
 
-  it('saved both side of opposite relationships', () => {
+  it('saved both side of opposite relationships', done => {
     const A = new jsmf.Class('A', [])
     const B = new jsmf.Class('B', [])
     A.addReference('b', B, 1, 'a', -1)
@@ -278,6 +315,7 @@ describe('saveModel', () => {
       .then(x  => x.records.length.should.equal(1))
       .then(() => session.run('MATCH (a) -[:a]-> (b) RETURN a.__jsmf__, b.__jsmf__', {jsmfId: jsmf.jsmfId(a)}))
       .then(x  => x.records.length.should.equal(1))
+      .then(() => done())
   })
 })
 

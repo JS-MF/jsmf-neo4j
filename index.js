@@ -44,12 +44,13 @@ module.exports.initStorage = () => {
 }
 
 module.exports.saveModel = function saveModel(m, ownTypes) {
-  const elements = m.elements()
-  elements.push(m)
+  const rawElems = m.elements()
+  rawElems.push(m)
+  const reified = new Map()
+  const elements = _.flatMap(rawElems, e => reifyMetaElement(e, reified, ownTypes))
   const session = driver.session()
   const mm = m.referenceModel
   if (mm instanceof jsmf.Model) {module.exports.saveModel(mm, ownTypes)}
-  const reified = new Map()
   return saveElements(elements, reified, ownTypes, session)
     .then(m => saveRelationships(elements, m, reified, ownTypes, session))
     .then(() => session.close())
@@ -155,7 +156,7 @@ function saveElements(es, reified, ownTypes, session) {
 }
 
 function saveElement(elt, reified, ownTypes, session) {
-  const e = reifyMetaElement(elt, reified, ownTypes)
+  const e = reified.get(elt) || elt
   const dry = dryElement(e, ownTypes)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
   classes.push('JSMF')
@@ -189,7 +190,7 @@ function saveRelationships(es, elemMap, reified, ownTypes, session) {
 }
 
 function saveElemRelationships(elt, elemMap, reified, ownTypes, session) {
-  const e = reifyMetaElement(elt, reified)
+  const e = reified.get(uuid.unparse(jsmf.jsmfId(elt))) || elt
   const references = e.conformsTo().getAllReferences()
   return _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, reified, ownTypes, session))
 }
@@ -201,14 +202,18 @@ function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session) {
 }
 
 function saveRelationship(source, ref, t, associated, elemMap, reified, ownTypes, session) {
-  const target = reifyMetaElement(t, reified)
+  const target = reified.get(uuid.unparse(jsmf.jsmfId(t))) || t
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
                      , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
                      , 'RETURN r'
                      ]
   const sourceId = elemMap.get(source)
-  const targetId = elemMap.get(target)
+  let targetId = elemMap.get(target)
+  if (!targetId) {
+    elemMap.set(...saveElement(target, reified, ownTypes, session))
+    targetId = elemMap.get(target)
+  }
   if (associated !== undefined) {
     const associatedId = elemMap.get(associated)
     if (associatedId === undefined) {
@@ -225,19 +230,20 @@ function dryElement(e) {
   const jid = uuid.unparse(jsmf.jsmfId(e))
   return _.reduce(attributes,
     function (res, a, k) {
-      if (e[k] !== undefined) {
-        res[k] = e[k]
-        return res
-      }
+      if (e[k] !== undefined) { res[k] = e[k] }
+      return res
     },
     {__jsmf__: jid})
 }
 
 function reifyMetaElement(elt, reified, ownTypes) {
   const cached = reified.get(elt)
-  return cached
-    || r.reifyModel(elt, reified, ownTypes)
-    || r.reifyClass(elt, reified, ownTypes)
-    || r.reifyEnum(elt, reified, ownTypes)
-    || elt
+  if (cached) {return cached}
+  const rModel = r.reifyModel(elt, reified, ownTypes)
+  if (rModel) return [rModel]
+  const rClass = r.reifyClass(elt, reified, ownTypes)
+  if (rClass) return (new jsmf.Model('', undefined, rClass, true)).elements()
+  const rEnum = r.reifyEnum(elt, reified, ownTypes)
+  if (rEnum) return [rEnum]
+  return [elt]
 }
