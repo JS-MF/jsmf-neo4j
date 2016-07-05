@@ -21,19 +21,24 @@ function initNeo4jConnector(done) {
   session = driver.session()
   n(url, username, password)
   n.initStorage()
-
-  session.run('MATCH (n) DETACH DELETE n').then(() => done())
+  done()
 }
 
-function closeNeo4j() {
+function cleanNeo4j() {
+  session.run('MATCH (n) DETACH DELETE n')
+}
+
+function closeNeo4j(done) {
   driver.close()
   n.close()
+  done()
 }
 
 describe('saveModel', () => {
 
-  beforeEach(initNeo4jConnector)
-  afterEach(closeNeo4j)
+  before(initNeo4jConnector)
+  beforeEach(cleanNeo4j)
+  after(closeNeo4j)
 
   it('saves element', () => {
     const A = new jsmf.Class('A', [])
@@ -43,7 +48,72 @@ describe('saveModel', () => {
     const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:A {__jsmf__: {jsmfId}}) RETURN (a)', {jsmfId}))
-      .then( x => x.records.length.should.equal(1))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves metamodel', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (a:Meta {name: "MM"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves classes', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Class {name: "A"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves enum', () => {
+    const A = new jsmf.Enum('A', ['on', 'off'])
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Enum {name: "A"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves enum values', () => {
+    const A = new jsmf.Enum('A', ['on', 'off'])
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Enum {name: "A"})-[:values]->(b) RETURN (b)'))
+      .then(x => x.records.length.should.equal(2))
+  })
+
+  it('saves class attributes', () => {
+    const A = new jsmf.Class('A', [], {x:Number})
+    const MM = new jsmf.Model('MM', {}, A)
+    return n.saveModel(MM)
+      .then(() => session.run('MATCH (a:Class {name: "A"})-[:attributes]->(b:Attribute {name: "x"}) RETURN (a)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves modellingElements', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (m:Model)-[:elements]->(a:A {__jsmf__: {jsmfId}}) RETURN (m)', {jsmfId}))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves relationship between models and elements', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (m:Model)-[:elements]->(a:A {__jsmf__: {jsmfId}}) RETURN (m)', {jsmfId}))
+      .then(x => x.records.length.should.equal(1))
   })
 
   it('is idempotent on two saves', () => {
@@ -254,8 +324,9 @@ describe('saveModel', () => {
 
 describe('load models', () => {
 
-  beforeEach(initNeo4jConnector)
-  afterEach(closeNeo4j)
+  before(initNeo4jConnector)
+  beforeEach(cleanNeo4j)
+  after(closeNeo4j)
 
 
   it('loads a simple element', () => {
