@@ -26,7 +26,7 @@ let driver
 
 module.exports = function init(url, user, password) {
   if (user !== undefined && password !== undefined) {
-    driver = neo4j.driver(url, neo4j.auth.basic(user, password))
+    driver = neo4j.driver(url, neo4j.auth.basic(user, password),  {trust: 'TRUST_ON_FIRST_USE', encrypted: true})
   } else if (user === undefined && password === undefined) {
     driver = neo4j.driver(url)
   } else  {
@@ -44,16 +44,23 @@ module.exports.initStorage = () => {
 }
 
 module.exports.saveModel = function saveModel(m, ownTypes) {
-  const rawElems = m.elements()
-  rawElems.push(m)
   const reified = new Map()
-  const elements = _.flatMap(rawElems, e => reifyMetaElement(e, reified, ownTypes))
+  const rawElements = gatherElements(m)
+  const elements = _.flatMap(rawElements, e => reifyMetaElement(e, reified, ownTypes))
   const session = driver.session()
-  const mm = m.referenceModel
-  if (mm instanceof jsmf.Model) {module.exports.saveModel(mm, ownTypes)}
   return saveElements(elements, reified, ownTypes, session)
     .then(m => saveRelationships(elements, m, reified, ownTypes, session))
     .then(() => session.close())
+}
+
+function gatherElements(m) {
+  if (!(m instanceof jsmf.Model)) { return []}
+  const result = m.elements()
+  result.push(m)
+  const mm = m.referenceModel
+  return mm instanceof jsmf.Model
+    ? result.concat(gatherElements(mm))
+    : result
 }
 
 module.exports.loadModel = function loadModel(mm) {
@@ -166,11 +173,13 @@ function saveElement(elt, reified, ownTypes, session) {
     return session.run(clean, {jsmfId: dry.__jsmf__})
       .then(() => session.run(update, {params: dry, jsmfId: dry.__jsmf__}))
       .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
+      .catch(err => Promise.reject(new Error(`Error with element: ${dry}`)))
   } else {
     const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
     return session.run(query, {params: dry})
       .catch(() => storeDuplicatedIdElement(classes, e, dry, session))
       .then(v => { setAsStored(e); return [e, v.records[0].get(0).identity]})
+      .catch(err => Promise.reject(new Error(`Error with element: ${dry}`)))
   }
 }
 
@@ -223,6 +232,8 @@ function saveRelationship(source, ref, t, associated, elemMap, reified, ownTypes
   }
   const params = Object.assign({sourceId, targetId}, associated!==undefined?{associated}:{})
   return session.run(statements.join(' '), params)
+      .then(() => console.log(`OK reference: ${params.sourceId} - ${ref} - ${params.targetId}`))
+      .catch(err => Promise.reject(new Error(`Error with reference: ${params.sourceId} - ${ref} - ${params.targetId}`)))
 }
 
 function dryElement(e) {
@@ -244,6 +255,6 @@ function reifyMetaElement(elt, reified, ownTypes) {
   const rClass = r.reifyClass(elt, reified, ownTypes)
   if (rClass) return (new jsmf.Model('', undefined, rClass, true)).elements()
   const rEnum = r.reifyEnum(elt, reified, ownTypes)
-  if (rEnum) return [rEnum]
+  if (rEnum) return (new jsmf.Model('', undefined, rEnum, true)).elements()
   return [elt]
 }

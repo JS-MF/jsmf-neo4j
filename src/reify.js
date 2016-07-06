@@ -21,7 +21,7 @@ const Enum = new jsmf.Class('Enum', Meta,
 
 const Attribute = new jsmf.Class('Attribute', Meta,
     {name: {type: String, mandatory: true}, mandatory: Boolean, primitiveType: String},
-    {type: {type: Enum, cardinality: jsmf.Cardinality.one}})
+    {type: {type: Enum, cardinality: jsmf.Cardinality.optional}})
 const Reference = new jsmf.Class('Reference', Meta,
     {name: {type: String, mandatory: true}, min: jsmf.Positive, max: jsmf.Positive, opposite: String})
 
@@ -31,6 +31,7 @@ const Class = new jsmf.Class('Class', Meta,
 Class.addReference('superClasses', Class)
 
 const Model = new jsmf.Class('Model', Meta, {name: {type: String, mandatory: true}}, {elements: {type: jsmf.JSMFAny}})
+Model.addReference('referenceModel', Model, jsmf.Cardinality.optional)
 
 
 Reference.addReference('type', Class, jsmf.Cardinality.one)
@@ -50,19 +51,22 @@ function reifyEnum(e, mapping) {
 }
 
 function reifyModel(m, mapping) {
+  mapping = mapping || new Map()
   if (!(m instanceof jsmf.Model)) {return undefined}
   const mId = uuid.unparse(jsmf.jsmfId(m))
   const cache = mapping.get(mId)
   if (cache != undefined) { return cache }
   const result = new Model({name: m.__name})
+  mapping.set(mId, result)
   result.elements = _(m.modellingElements).values().flatten().value()
+  if (m.referenceModel instanceof jsmf.Model) {result.referenceModel = reifyModel(m.referenceModel, mapping)}
   result.__jsmf__.uuid = jsmf.jsmfId(m)
   result.__jsmf__.storeIn = m.__jsmf__.storeIn
-  mapping.set(mId, result)
   return result
 }
 
 function reifyClass(c, mapping, ownTypes) {
+  mapping = mapping || new Map()
   if (!jsmf.isJSMFClass(c)) {return undefined}
   const cId = uuid.unparse(jsmf.jsmfId(c))
   const cache = mapping.get(cId)
@@ -78,6 +82,7 @@ function reifyClass(c, mapping, ownTypes) {
 }
 
 function reifyAttribute(name, a, mapping, ownTypes) {
+  mapping = mapping || new Map()
   const result = new Attribute({name, mandatory: a.mandatory})
   if (jsmf.isJSMFEnum(a.type)) {
     result.type = reifyEnum(a.type, mapping)
@@ -88,6 +93,7 @@ function reifyAttribute(name, a, mapping, ownTypes) {
 }
 
 function reifyReference(name, r, mapping, ownTypes) {
+  mapping = mapping || new Map()
   const result = new Reference(
     { name
     , min: r.cardinality.min
@@ -118,8 +124,92 @@ function stringifyType(t) {
   }
 }
 
-const jsmfMetamodel = new jsmf.Model('jsmfMetamodel', undefined, [Class, Meta], true)
+function disembodyEnum(e, mapping) {
+  if (!e instanceof Enum) {return undefined}
+  mapping = mapping || new Map()
+  const cache = mapping.get(e)
+  if (cache) {return cache}
+  const values = _(e.values).map(v => disembodyEnumValue(v)).fromPairs().value()
+  const result = new jsmf.Enum(e.name, values)
+  result.__jsmf__.uuid = e.__jsmf__.uuid
+  result.__jsmf__.storeIn = e.__jsmf__.storeIn
+  mapping.set(e, result)
+  return result
+}
+
+function disembodyEnumValue(v) {
+  if (!v instanceof EnumValue) {return undefined}
+  return [v.key, v.value]
+}
+
+function disembodyClass(c, mapping, ownTypes) {
+  mapping = mapping || new Map()
+  const cache = mapping.get(c)
+  if (cache) {return cache}
+  if (!c instanceof Class) {return undefined}
+  const superClasses = _.map(c.superClasses, s => disembodyClass(s, mapping, ownTypes))
+  const attributes = _(c.attributes).map(a => [a.name, disembodyAttribute(a, mapping, ownTypes)]).fromPairs().value()
+  const result = new jsmf.Class(c.name, superClasses, attributes)
+  mapping.set(c, result)
+  _.forEach(c.references, r => {
+    result.addReference(
+      r.name,
+      disembodyClass(r.type, mapping, ownTypes),
+      new jsmf.Cardinality(r.min, r.max),
+      r.opposite
+      )
+  })
+  return result
+}
+
+function disembodyAttribute(a, mapping, ownTypes) {
+  const result = {mandatory: a.type}
+  if (a.primitiveType) {result.type = parseType(a.primitiveType, ownTypes)}
+  _.forEach(a.type, a => {result.type = disembodyEnum(a.type, mapping)})
+  return result
+}
+
+function disembodyModel(m, mapping) {
+  mapping = mapping || new Map()
+  const cache = mapping.get(m)
+  if (cache) {return cache}
+  if (!m instanceof Model) {return undefined}
+  const result = new jsmf.Model(m.name)
+  mapping.set(m, result)
+  if (m.referenceModel instanceof Model) {
+    result.referenceModel = disembodyModel(m.referenceModel, mapping)
+  }
+  result.addModellingElement(m.elements)
+  return result
+}
+
+function parseType(t, ownTypes) {
+  switch (t) {
+  case 'Number': return jsmf.Number
+  case 'Positive': return jsmf.Positive
+  case 'Negative': return jsmf.Negative
+  case 'String': return jsmf.String
+  case 'Boolean': return jsmf.Boolean
+  case 'Date': return jsmf.Date
+  case 'Array': return jsmf.Array
+  case 'Object': return jsmf.Object
+  case 'Any': return jsmf.Any
+  default: ownTypes = ownTypes || _.constant(false)
+    return checkRange(t) || ownTypes(t) || jsmf.Any
+  }
+}
+
+function checkRange(t) {
+  const rangeRegex = /Range\((\d+(?:\.\d+)?), *(\d+(?:\.\d+)?)\)/
+  const res = rangeRegex.exec(t)
+  if (res != null) {
+    return jsmf.Range(res[1], res[2])
+  }
+}
+
+
+const jsmfMetamodel = new jsmf.Model('jsmfMetamodel', undefined, [Class, Model, Meta], true)
 
 module.exports = jsmf.modelExport(jsmfMetamodel)
 
-_.assign(module.exports, {reifyEnum, reifyClass, reifyModel})
+_.assign(module.exports, {reifyEnum, disembodyEnum, reifyClass, disembodyClass, reifyModel, disembodyModel})
