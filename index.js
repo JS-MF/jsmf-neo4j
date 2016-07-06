@@ -77,7 +77,7 @@ module.exports.loadModel = function loadModel(mm) {
     .then(elements => filterClassHierarchy(elements))
     .then(elements => new Map(_.map(elements, e => [uuid.unparse(jsmf.jsmfId(e)), e])))
     .then(elements => refillReferences(classes, elements, session))
-    .then(values => new jsmf.Model('LoadedModel', mm, [...values.values()]))
+    .then(values => new jsmf.Model('LoadedModel', mm, Array.from(values.values())))
 }
 
 function loadElements(cls, session) {
