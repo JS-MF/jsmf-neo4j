@@ -233,7 +233,7 @@ function saveRelationship(source, ref, t, associated, elemMap, reified, ownTypes
   const params = Object.assign({sourceId, targetId}, associated!==undefined?{associated}:{})
   return session.run(statements.join(' '), params)
       .then(() => console.log(`OK reference: ${params.sourceId} - ${ref} - ${params.targetId}`))
-      .catch(err => Promise.reject(new Error(`Error with reference: ${params.sourceId} - ${ref} - ${params.targetId}`)))
+      .catch(err => {console.log(err); return Promise.reject(new Error(`Error with reference: ${params.sourceId} - ${ref} - ${params.targetId}`))})
 }
 
 function dryElement(e) {

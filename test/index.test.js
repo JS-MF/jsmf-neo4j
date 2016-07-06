@@ -21,24 +21,19 @@ function initNeo4jConnector(done) {
   session = driver.session()
   n(url, username, password)
   n.initStorage()
-  done()
-}
 
-function cleanNeo4j(done) {
   session.run('MATCH (n) DETACH DELETE n').then(() => done())
 }
 
-function closeNeo4j(done) {
+function closeNeo4j() {
   driver.close()
   n.close()
-  done()
 }
 
 describe('saveModel', () => {
 
-  before(initNeo4jConnector)
-  beforeEach(cleanNeo4j)
-  after(closeNeo4j)
+  beforeEach(initNeo4jConnector)
+  afterEach(closeNeo4j)
 
   it('saves element', () => {
     const A = new jsmf.Class('A', [])
@@ -346,10 +341,8 @@ describe('saveModel', () => {
 
 describe('load models', () => {
 
-  before(initNeo4jConnector)
-  beforeEach(cleanNeo4j)
-  after(closeNeo4j)
-
+  beforeEach(initNeo4jConnector)
+  afterEach(closeNeo4j)
 
   it('loads a simple element', () => {
     const A = new jsmf.Class('A', [])
