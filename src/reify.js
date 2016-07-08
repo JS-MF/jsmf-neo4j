@@ -99,8 +99,8 @@ function reifyReference(name, r, mapping, ownTypes) {
     , min: r.cardinality.min
     , max: r.cardinality.max
     , opposite: r.opposite
-    , type: reifyClass(r.type, mapping, ownTypes)
     })
+  if (r.type !== jsmf.JSMFAny) {result.type = reifyClass(r.type, mapping, ownTypes)}
   return result
 }
 

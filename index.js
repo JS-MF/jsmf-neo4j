@@ -48,9 +48,13 @@ module.exports.saveModel = function saveModel(m, ownTypes) {
   const rawElements = gatherElements(m)
   const elements = _.flatMap(rawElements, e => reifyMetaElement(e, reified, ownTypes))
   const session = driver.session()
-  return saveElements(elements, reified, ownTypes, session)
-    .then(m => saveRelationships(elements, m, reified, ownTypes, session))
+  return saveElements(elements, new Map(), reified, ownTypes, session)
     .then(() => session.close())
+}
+
+function saveElements(elements, elemMap, reified, ownTypes, session) {
+  return saveAttributes(elements, elemMap, reified, ownTypes, session)
+    .then(() => saveRelationships(elements, elemMap, reified, ownTypes, session))
 }
 
 function gatherElements(m) {
@@ -158,11 +162,12 @@ function resolveElement(cls, e, elements) {
   return res
 }
 
-function saveElements(es, reified, ownTypes, session) {
-  return Promise.all(_.map(es, x => saveElement(x, reified, ownTypes, session))).then(v => new Map(v))
+function saveAttributes(es, elemMap, reified, ownTypes, session) {
+  return Promise.all(_.map(es, x => saveAttribute(x, reified, ownTypes, session)))
+    .then(vs => _.reduce(vs, (acc, v) => {acc.set(v[0], v[1]); return acc}, elemMap))
 }
 
-function saveElement(elt, reified, ownTypes, session) {
+function saveAttribute(elt, reified, ownTypes, session) {
   const e = reified.get(elt) || elt
   const dry = dryElement(e, ownTypes)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
@@ -201,7 +206,12 @@ function saveRelationships(es, elemMap, reified, ownTypes, session) {
 function saveElemRelationships(elt, elemMap, reified, ownTypes, session) {
   const e = reified.get(uuid.unparse(jsmf.jsmfId(elt))) || elt
   const references = e.conformsTo().getAllReferences()
-  return _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, reified, ownTypes, session))
+  const result = _.flatMap(references, (v, r) => saveElemRelationship(e, r, elemMap, reified, ownTypes, session))
+  const ct = e.conformsTo()
+  if (jsmf.isJSMFClass(ct) && !_.includes(ct.superClasses, r.Meta)) {
+    result.push(saveRelationship(e, 'conformsTo', ct, undefined, elemMap, reified, ownTypes, session))
+  }
+  return result
 }
 
 function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session) {
@@ -210,30 +220,34 @@ function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session) {
   return _.map(referenced, t => saveRelationship(e, ref, t, associated.get(t), elemMap, reified, ownTypes, session))
 }
 
-function saveRelationship(source, ref, t, associated, elemMap, reified, ownTypes, session) {
-  const target = reified.get(uuid.unparse(jsmf.jsmfId(t))) || t
+function saveRelationship(source, ref, target, associated, elemMap, reified, ownTypes, session) {
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
                      , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
                      , 'RETURN r'
                      ]
-  const sourceId = elemMap.get(source)
-  let targetId = elemMap.get(target)
-  if (!targetId) {
-    elemMap.set(...saveElement(target, reified, ownTypes, session))
-    targetId = elemMap.get(target)
-  }
-  if (associated !== undefined) {
-    const associatedId = elemMap.get(associated)
-    if (associatedId === undefined) {
-      saveElement(associated, reified, ownTypes, session)
-    }
-    associated = associated ? dryElement(associated) : undefined
-  }
-  const params = Object.assign({sourceId, targetId}, associated!==undefined?{associated}:{})
-  return session.run(statements.join(' '), params)
-      .then(() => console.log(`OK reference: ${params.sourceId} - ${ref} - ${params.targetId}`))
-      .catch(err => {console.log(err); return Promise.reject(new Error(`Error with reference: ${params.sourceId} - ${ref} - ${params.targetId}`))})
+  return Promise.all(_.map([source, associated, target], e => resolveId(e, elemMap, reified, ownTypes, session)))
+    .then(ids => {
+      if (ids[2] === undefined) {
+        console.log(target)
+        console.log(ids[2])
+      }
+      return Object.assign({sourceId: ids[0], targetId: ids[2]}, associated!==undefined?{associated: dryElement(associated)}:{})
+    })
+    .then(params => session.run(statements.join(' '), params))
+}
+
+function resolveId(e, elemMap, reified, ownTypes, session) {
+  if (e === undefined) {return Promise.resolve(undefined)}
+  let elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e
+  const elemId = elemMap.get(elem)
+  if (elemId) {return Promise.resolve(elemId)}
+  const re = reifyMetaElement(e, reified, ownTypes)
+  return saveElements(re, elemMap, reified, ownTypes, session)
+    .then(() => {
+      elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e
+      return elemMap.get(elem)
+    })
 }
 
 function dryElement(e) {
@@ -248,7 +262,7 @@ function dryElement(e) {
 }
 
 function reifyMetaElement(elt, reified, ownTypes) {
-  const cached = reified.get(elt)
+  const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
   if (cached) {return cached}
   const rModel = r.reifyModel(elt, reified, ownTypes)
   if (rModel) return [rModel]

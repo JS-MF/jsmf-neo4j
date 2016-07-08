@@ -66,9 +66,19 @@ describe('saveModel', () => {
     const MM = new jsmf.Model('MM', {}, A)
     let a = new A()
     const M = new jsmf.Model('M', MM, [a])
-    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
     return n.saveModel(M)
       .then(() => session.run('MATCH (a:Meta {name: "MM"})<-[:referenceModel]-(b:Meta:Model {name: "M"}) RETURN (b)'))
+      .then(x => x.records.length.should.equal(1))
+  })
+
+  it('saves conformsTo relationship', () => {
+    const A = new jsmf.Class('A', [])
+    const MM = new jsmf.Model('MM', {}, A)
+    let a = new A()
+    const M = new jsmf.Model('M', MM, [a])
+    const jsmfId = uuid.unparse(jsmf.jsmfId(a))
+    return n.saveModel(M)
+      .then(() => session.run('MATCH (a:Meta:Class {name: "A"})<-[:conformsTo]-(b:A) RETURN (b)'))
       .then(x => x.records.length.should.equal(1))
   })
 
