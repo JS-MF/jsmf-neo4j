@@ -67,21 +67,117 @@ function gatherElements(m) {
     : result
 }
 
-module.exports.loadModel = function loadModel(mm) {
-  const session = driver.session()
+module.exports.loadModel = function loadModel(mm, session) {
+  const mySession = session || driver.session()
   const classes = _.map(mm.classes, x => x[0])
-  return Promise.all(_.map(classes, k => loadElements(k, session)))
+  return Promise.all(_.map(classes, k => loadElements(k, mySession)))
     .then(elementsByClass =>
-        _.flatMap(elementsByClass, elements => {
-          const cls = elements[0]
-          const records = elements[1].records
-          return _.flatMap(records, x => refillAttributes(cls, x.get('a'), session))
-        })
+      _.flatMap(elementsByClass, elements => {
+        const cls = elements[0]
+        const records = elements[1].records
+        return _.flatMap(records, x => refillAttributes(cls, x.get('a')))
+      })
     )
     .then(elements => filterClassHierarchy(elements))
     .then(elements => new Map(_.map(elements, e => [uuid.unparse(jsmf.jsmfId(e)), e])))
-    .then(elements => refillReferences(classes, elements, session))
-    .then(values => new jsmf.Model('LoadedModel', mm, Array.from(values.values())))
+    .then(elements => refillReferences(classes, elements, mySession))
+    .then(values => {
+      if (session !== mySession) {mySession.close()}
+      return new jsmf.Model('LoadedModel', mm, Array.from(values.values()))
+    })
+}
+
+module.exports.loadModelFromName = function loadModelFromName(name, ownTypes) {
+  const session = driver.session()
+  let modelElements, nodesByModel, classesMap
+  return findModelsIdByName(session, name)
+    .then(mIds => Promise.all(_.map(mIds, mId => getModelNodes(session, mId))))
+    .then(mes => {
+      modelElements = _.flatMap(mes, e => e[1])
+      nodesByModel = _(mes).groupBy(e => e[0]).mapValues(es => _.flatMap(es, e => e[1])).value()
+    })
+    .then(() => gatherMetaElementsIds(modelElements))
+    .then(me => resolveMetaElements(session, me, ownTypes))
+    .then(me => {
+      classesMap = me
+      return _.mapValues(nodesByModel, es =>
+        _(es)
+          .map(e => [e.element, me.get(e.class.properties.__jsmf__)])
+          .map(e => hydrateObject(e[0], e[1], me))
+          .value()
+      )
+    })
+    .then(elems => refillReferences(Array.from(classesMap.values()), elems, session))
+    .then(elems => new jsmf.Model(name,
+      Array.from(classesMap.values()),
+      _(elems).values().flatten().value()))
+}
+
+function classesById(mm) {
+  const knownElements = mm
+    ? []
+    : _.map(mm.elements(), e => [jsmf.jsmfId(e), e])
+  return new Map(knownElements)
+}
+
+function findModelsIdByName(session, name) {
+  const query =
+    ` MATCH (m:Meta:Model {name: {name}})
+      RETURN m.__jsmf__ AS jsmfId`
+  return session.run(query, {name}).then(result => _.map(result.records, x => x.get('jsmfId')))
+}
+
+function getModelNodes(session, mId) {
+  const query =
+    ` MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
+      OPTIONAL MATCH (e)-[:conformsTo]->(c)
+      RETURN e, c`
+  return session.run(query, {mId})
+    .then(result => [mId, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
+}
+
+function gatherMetaElementsIds(elemAndDescriptors) {
+  return _.reduce(
+    elemAndDescriptors,
+    (acc, e) => e.class ? addClass(acc, e.class.properties.__jsmf__) : addClass(acc, e.properties.__jsmf__),
+    new Set())
+}
+
+function addClass(s, e) {
+  s.add(e)
+  return s
+}
+
+function resolveMetaElements(session, idSet, ownTypes) {
+  return loadModelByIds(session, idSet, r.jsmfMetamodel)
+    .then(es => _.reduce(es, (cache, e) => disembodyStuff(e, ownTypes, cache), new Map()))
+    .then(res => new Map(_.map(Array.from(res), kv => [uuid.unparse(jsmf.jsmfId(kv[0])), kv[1]])))
+}
+
+function loadModelByIds(session, idSet, jsmfMM) {
+  return module.exports.loadModel(jsmfMM, session)
+    .then(m => m.elements())
+    .then(es => _.filter(es, e => idSet.has(uuid.unparse(jsmf.jsmfId(e)))))
+}
+
+function hydrateObject(e, cls, classMap) {
+  return cls === undefined
+    ? classMap.get(uuid.unparse(e.properties.__jsmf__))
+    : refillAttributes(cls, e)
+}
+
+function disembodyStuff(e, ownTypes, cache) {
+  const cached = cache.get(jsmf.jsmfId(e))
+  if (!cached) {
+    const c = e.conformsTo()
+    let result
+    if (c === r.Class) { result = r.disembodyClass(e, cache, ownTypes) }
+    else if (c === r.Enum)  { result = r.disembodyEnum(e, cache) }
+    else if (c === r.Model)  { result = r.disembodyModel(e, cache) }
+    else { throw new Error("unkown element c") }
+    cache.set(e, result)
+  }
+  return cache
 }
 
 function loadElements(cls, session) {
@@ -91,8 +187,8 @@ function loadElements(cls, session) {
 
 function refillAttributes(cls, e) {
   const res = cls.newInstance()
-  _.forEach(cls.getAllAttributes(), (t, x) => res[x] = e.properties[x])
-  res.__jsmf__.uuid = uuid.parse(e.properties.__jsmf__)
+  _.forEach(cls.getAllAttributes(), (t, x) => {res[x] = e.properties[x]})
+  try {res.__jsmf__.uuid = uuid.parse(e.properties.__jsmf__)} catch (err) {}
   setAsStored(res)
   return res
 }
@@ -265,10 +361,10 @@ function reifyMetaElement(elt, reified, ownTypes) {
   const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
   if (cached) {return cached}
   const rModel = r.reifyModel(elt, reified, ownTypes)
-  if (rModel) return [rModel]
+  if (rModel) {return [rModel]}
   const rClass = r.reifyClass(elt, reified, ownTypes)
-  if (rClass) return (new jsmf.Model('', undefined, rClass, true)).elements()
+  if (rClass) {return (new jsmf.Model('', undefined, rClass, true)).elements()}
   const rEnum = r.reifyEnum(elt, reified, ownTypes)
-  if (rEnum) return (new jsmf.Model('', undefined, rEnum, true)).elements()
+  if (rEnum) {return (new jsmf.Model('', undefined, rEnum, true)).elements()}
   return [elt]
 }
