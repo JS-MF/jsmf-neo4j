@@ -5,6 +5,7 @@ const should = require('should')
     , jsmf = require('jsmf-core')
     , uuid = require('uuid')
     , n = require('../index')
+    , _ = require('lodash')
     , r = require('../src/reify')
 
 const url = 'bolt://localhost'
@@ -14,6 +15,9 @@ const password = 'neo4j'
 const uuid1 = uuid.unparse(jsmf.generateId())
 const uuid2 = uuid.unparse(jsmf.generateId())
 const uuid3 = uuid.unparse(jsmf.generateId())
+const uuid4 = uuid.unparse(jsmf.generateId())
+const uuid5 = uuid.unparse(jsmf.generateId())
+const uuid6 = uuid.unparse(jsmf.generateId())
 
 let driver, session
 
@@ -385,17 +389,6 @@ describe('load models', () => {
       })
   })
 
-  it('loads a simple element model from name', () => {
-    const initDB = session.run('CREATE (m:Meta:Model {name: \'M\', __jsmf__: {uuid1} })-[:elements]->(a:A {__jsmf__: {uuid2}})-[:conformsTo]->(c:Meta:Class {name: "A", __jsmf__: {uuid3}})', {uuid1, uuid2, uuid3})
-    return initDB
-      .then(() => n.loadModelFromName('M'))
-      .then(x => {
-        x.elements().length.should.equal(1)
-        x.modellingElements.A.length.should.equal(1)
-        jsmf.jsmfId(x.modellingElements.A[0]).should.eql(uuid.parse(uuid2))
-      })
-  })
-
   it('loads a simple class', () => {
     const elemId = uuid1
     const initDB = session.run('CREATE (a:Meta:Class {name: "A", __jsmf__: { elemId }})', {elemId})
@@ -648,9 +641,10 @@ describe('load models by name', () => {
     return initDB
       .then(() => n.loadModelFromName('M'))
       .then(x => {
-        x.elements().length.should.equal(1)
-        x.modellingElements.A.length.should.equal(1)
-        jsmf.jsmfId(x.modellingElements.A[0]).should.eql(uuid.parse(uuid2))
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(1)
+        x[0].modellingElements.A.length.should.equal(1)
+        jsmf.jsmfId(x[0].modellingElements.A[0]).should.eql(uuid.parse(uuid2))
       })
   })
 
@@ -659,9 +653,10 @@ describe('load models by name', () => {
     return initDB
       .then(() => n.loadModelFromName('M'))
       .then(x => {
-        x.elements().length.should.equal(1)
-        x.modellingElements.A.length.should.equal(1)
-        x.modellingElements.A[0].foo.should.eql('test')
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(1)
+        x[0].modellingElements.A.length.should.equal(1)
+        x[0].modellingElements.A[0].foo.should.eql('test')
       })
   })
 
@@ -670,9 +665,57 @@ describe('load models by name', () => {
     return initDB
       .then(() => n.loadModelFromName('M', t => t == 'MyString' ? jsmf.jsmfString : undefined))
       .then(x => {
-        x.elements().length.should.equal(1)
-        x.modellingElements.A.length.should.equal(1)
-        x.modellingElements.A[0].foo.should.eql('test')
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(1)
+        x[0].modellingElements.A.length.should.equal(1)
+        x[0].modellingElements.A[0].foo.should.eql('test')
+      })
+  })
+
+  it('loads a simple element with an enum attribute model from name', () => {
+    const initDB = session.run(`CREATE (m:Meta:Model {name: "M", __jsmf__: {uuid1} })-[:elements]->(a:A {__jsmf__: {uuid2}, foo: {value}})-[:conformsTo]->(c:Meta:Class {name: "A", __jsmf__: {uuid3}})-[:attributes]->(at:Meta:Attribute {name: "foo", __jsmf__: {uuid4}})
+      CREATE (at)-[:type]->(e:Meta:Enum {name: 'State', __jsmf__: {uuid5}})-[:values]->(o:Meta:EnumValue {key: "toto", value: {value}, __jsmf__: {uuid6}})`,
+        {uuid1, uuid2, uuid3, uuid4, uuid5, uuid6, value: 0})
+    return initDB
+      .then(() => n.loadModelFromName('M'))
+      .then(x => {
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(1)
+        x[0].modellingElements.A.length.should.equal(1)
+        x[0].modellingElements.A[0].foo.should.eql(0)
+      })
+  })
+
+  it('loads a simple element with custom attribute model from name', () => {
+    const initDB = session.run(
+      `CREATE (m:Meta:Model {name: "M", __jsmf__: {uuid1} })-[:elements]->(a:A {__jsmf__: {uuid2}, foo: "test"})-[:conformsTo]->(c:Meta:Class {name: "A", __jsmf__: {uuid3}})-[:attributes]->(at:Meta:Attribute {name: "foo", primitiveType: "MyString", __jsmf__: {uuid4}})
+       CREATE (m)-[:elements]->(b:A {__jsmf__: {uuid4}, foo: "woot"})-[:conformsTo]->(c)
+      `, {uuid1, uuid2, uuid3, uuid4})
+    return initDB
+      .then(() => n.loadModelFromName('M', t => t == 'MyString' ? jsmf.jsmfString : undefined))
+      .then(x => {
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(2)
+        x[0].modellingElements.A.length.should.equal(2)
+        _.map(x[0].modellingElements.A, 'foo').should.containDeep(['test', 'woot'])
+      })
+  })
+
+  it('loads a simple element with reference from name', () => {
+    const initDB = session.run(
+      `CREATE (m:Meta:Model {name: "M", __jsmf__: {uuid1} })-[:elements]->(a:A {__jsmf__: {uuid2}, foo: "test"})-[:conformsTo]->(c:Meta:Class {name: "A", __jsmf__: {uuid3}})
+       CREATE (m)-[:elements]->(b:A {__jsmf__: {uuid4}, foo: "woot"})-[:conformsTo]->(c)
+       CREATE (a)-[:ref]->(b)
+       CREATE (c)-[:references]->(r:Meta:Reference {name: "ref", min: 1, max: 1, __jsmf__: {uuid5}})
+       CREATE (r)-[:type]->(c)
+      `, {uuid1, uuid2, uuid3, uuid4, uuid5})
+    return initDB
+      .then(() => n.loadModelFromName('M'))
+      .then(x => {
+        x.length.should.equal(1)
+        x[0].elements().length.should.equal(2)
+        x[0].modellingElements.A.length.should.equal(2)
+        _.flatMap(x[0].modellingElements.A, 'ref').should.matchAny(v => x[0].modellingElements.A.should.containEql(v))
       })
   })
 

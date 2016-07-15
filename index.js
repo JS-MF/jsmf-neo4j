@@ -89,7 +89,7 @@ module.exports.loadModel = function loadModel(mm, session) {
 
 module.exports.loadModelFromName = function loadModelFromName(name, ownTypes) {
   const session = driver.session()
-  let modelElements, nodesByModel, classesMap
+  let modelElements, nodesByModel
   return findModelsIdByName(session, name)
     .then(mIds => Promise.all(_.map(mIds, mId => getModelNodes(session, mId))))
     .then(mes => {
@@ -98,40 +98,37 @@ module.exports.loadModelFromName = function loadModelFromName(name, ownTypes) {
     })
     .then(() => gatherMetaElementsIds(modelElements))
     .then(me => resolveMetaElements(session, me, ownTypes))
-    .then(me => {
-      classesMap = me
-      return _.mapValues(nodesByModel, es =>
-        _(es)
-          .map(e => [e.element, me.get(e.class.properties.__jsmf__)])
-          .map(e => hydrateObject(e[0], e[1], me))
-          .value()
-      )
-    })
-    .then(elems => refillReferences(Array.from(classesMap.values()), elems, session))
-    .then(elems => new jsmf.Model(name,
-      Array.from(classesMap.values()),
-      _(elems).values().flatten().value()))
+    .then(mm => Promise.all(_.map(Array.from(_.entries(nodesByModel)), x => resolveModel(name, x[0], x[1], mm, session))))
 }
 
-function classesById(mm) {
-  const knownElements = mm
-    ? []
-    : _.map(mm.elements(), e => [jsmf.jsmfId(e), e])
-  return new Map(knownElements)
+function resolveModel(name, modelId, elements, metamodel, session) {
+  const mmValues = Array.from(metamodel.values())
+  const hydratedElements = new Map(
+    _(elements)
+      .map(e => [e.element, metamodel.get(e.class.properties.__jsmf__)])
+      .map(e => hydrateObject(e[0], e[1], metamodel))
+      .map(e => [uuid.unparse(jsmf.jsmfId(e)), e])
+      .value())
+  return refillReferences(mmValues, hydratedElements, session)
+    .then(elems => Array.from(elems.values()))
+    .then(elems => new jsmf.Model(name,
+      mmValues,
+      _(elems).values().flatten().value()))
+    .then(m => {m.__jsmf__.uuid = modelId; return m})
 }
 
 function findModelsIdByName(session, name) {
   const query =
-    ` MATCH (m:Meta:Model {name: {name}})
-      RETURN m.__jsmf__ AS jsmfId`
+    `MATCH (m:Meta:Model {name: {name}})
+     RETURN m.__jsmf__ AS jsmfId`
   return session.run(query, {name}).then(result => _.map(result.records, x => x.get('jsmfId')))
 }
 
 function getModelNodes(session, mId) {
   const query =
-    ` MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
-      OPTIONAL MATCH (e)-[:conformsTo]->(c)
-      RETURN e, c`
+    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
+     OPTIONAL MATCH (e)-[:conformsTo]->(c)
+     RETURN e, c`
   return session.run(query, {mId})
     .then(result => [mId, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
 }
@@ -170,12 +167,10 @@ function disembodyStuff(e, ownTypes, cache) {
   const cached = cache.get(jsmf.jsmfId(e))
   if (!cached) {
     const c = e.conformsTo()
-    let result
-    if (c === r.Class) { result = r.disembodyClass(e, cache, ownTypes) }
-    else if (c === r.Enum)  { result = r.disembodyEnum(e, cache) }
-    else if (c === r.Model)  { result = r.disembodyModel(e, cache) }
-    else { throw new Error("unkown element c") }
-    cache.set(e, result)
+    if (c === r.Class) { r.disembodyClass(e, cache, ownTypes) }
+    else if (c === r.Enum)  { r.disembodyEnum(e, cache) }
+    else if (c === r.Model) { r.disembodyModel(e, cache) }
+    else { return cache }
   }
   return cache
 }
@@ -216,17 +211,18 @@ function checkElement(m, elem) {
 }
 
 function refillReferences(classes, elements, session) {
-  const silentProperties = new Set()
+  const silentProperties = new Map()
   return Promise.all(
-      _(classes).flatMap(x => _.map(x.getAllReferences(), (ref, refName) => [x, ref, refName]))
+      _(classes).filter(jsmf.isJSMFClass)
+            .flatMap(x => _.map(x.getAllReferences(), (ref, refName) => [x, ref, refName]))
             .map(x => refillReference(x[2], x[0], x[1], elements, silentProperties, session))
             .value()).then(() => elements)
 }
 
 function refillReference(refName, cls, ref, elements, silentProperties, session) {
-  if (silentProperties.has(refName)) { return undefined }
-  silentProperties.add(refName)
-  if (ref.opposite != undefined) { silentProperties.add(ref.opposite)}
+  const clsSilentProperties = silentProperties.get(cls) || new Set()
+  if  (clsSilentProperties.has(refName)) { return undefined }
+  if (ref.opposite != undefined) { silentProperties.set(ref.type, clsSilentProperties.add(ref.opposite)) }
   const query = `MATCH (s:${cls.__name})-[a:${refName}]->(t:${ref.type.__name}) RETURN s, t, a`
   return session.run(query)
     .then(res => _.map(res.records,
@@ -323,13 +319,8 @@ function saveRelationship(source, ref, target, associated, elemMap, reified, own
                      , 'RETURN r'
                      ]
   return Promise.all(_.map([source, associated, target], e => resolveId(e, elemMap, reified, ownTypes, session)))
-    .then(ids => {
-      if (ids[2] === undefined) {
-        console.log(target)
-        console.log(ids[2])
-      }
-      return Object.assign({sourceId: ids[0], targetId: ids[2]}, associated!==undefined?{associated: dryElement(associated)}:{})
-    })
+    .then(ids => Object.assign({sourceId: ids[0], targetId: ids[2]}, associated!==undefined?{associated: dryElement(associated)}:{})
+    )
     .then(params => session.run(statements.join(' '), params))
 }
 

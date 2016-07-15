@@ -143,18 +143,19 @@ function disembodyEnumValue(v) {
 }
 
 function disembodyClass(c, mapping, ownTypes) {
+  if (!c instanceof Class) {return undefined}
   mapping = mapping || new Map()
   const cache = mapping.get(c)
   if (cache) {return cache}
-  if (!c instanceof Class) {return undefined}
   const superClasses = _.map(c.superClasses, s => disembodyClass(s, mapping, ownTypes))
   const attributes = _(c.attributes).map(a => [a.name, disembodyAttribute(a, mapping, ownTypes)]).fromPairs().value()
   const result = new jsmf.Class(c.name, superClasses, attributes)
   mapping.set(c, result)
   _.forEach(c.references, r => {
+    const target = _.map(r.type, t => disembodyClass(t, mapping, ownTypes))
     result.addReference(
       r.name,
-      disembodyClass(r.type, mapping, ownTypes),
+      target[0],
       new jsmf.Cardinality(r.min, r.max),
       r.opposite
       )
@@ -165,7 +166,7 @@ function disembodyClass(c, mapping, ownTypes) {
 function disembodyAttribute(a, mapping, ownTypes) {
   const result = {mandatory: a.type}
   if (a.primitiveType) {result.type = parseType(a.primitiveType, ownTypes)}
-  _.forEach(a.type, a => {result.type = disembodyEnum(a.type, mapping)})
+  else {result.type = disembodyEnum(a.type[0], mapping)}
   return result
 }
 
