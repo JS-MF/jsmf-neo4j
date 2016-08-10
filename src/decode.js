@@ -4,7 +4,7 @@
 ©2015 Luxembourg Institute of Science and Technology All Rights Reserved
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-Authors : J.S. Sottet, N. Biri
+Authors : N. Biri, J.S. Sottet
 */
 
 /* **************************************
@@ -23,16 +23,31 @@ const _ = require('lodash')
 
 module.exports.loadModelFromName = function loadModelFromName(name, ownTypes, driver) {
   const session = driver.session()
-  let modelElements, nodesByModel
-  return findModelsIdByName(session, name)
-    .then(mIds => Promise.all(_.map(mIds, mId => getModelNodes(session, mId))))
+  let nodesByModel, modelElements
+  return findModelsByName(session, name)
+    .then(mNodes => Promise.all(_.map(mNodes, mNode => getModelNodes(session, mNode.get('m')))))
     .then(mes => {
       modelElements = _.flatMap(mes, e => e[1])
-      nodesByModel = _(mes).groupBy(e => e[0]).mapValues(es => _.flatMap(es, e => e[1])).value()
+      nodesByModel = _(mes).reduce((acc, e) => {
+        const modelNodes = acc.get(e[0]) || []
+        acc.set(e[0], modelNodes.concat(e[1]))
+        return acc
+      }, new Map())
     })
     .then(() => gatherMetaElementsIds(modelElements))
     .then(me => resolveMetaElements(session, me, ownTypes, driver))
-    .then(mm => Promise.all(_.map(Array.from(_.entries(nodesByModel)), x => resolveModel(name, x[0], x[1], mm, session, driver))))
+    .then(mm => Promise.all(_.map(Array.from(nodesByModel.entries()), x => resolveModel(x[0], x[1], mm, session, driver))))
+}
+
+module.exports.loadModelFromId = function loadModelFromId(mId, ownTypes, driver) {
+  const session = driver.session()
+  let modelNode, modelElements
+  return findModelsById(session, mId)
+    .then(mNode => modelNode = mNode.get('m'))
+    .then(() => getModelNodes(session, modelNode))
+    .then(nodes => {modelElements = nodes[1]; return gatherMetaElementsIds(modelElements)})
+    .then(me => resolveMetaElements(session, me, ownTypes, driver))
+    .then(mm => resolveModel(modelNode, modelElements, mm, session, driver))
 }
 
 module.exports.loadModel = function loadModel(mm, session, driver) {
@@ -55,7 +70,7 @@ module.exports.loadModel = function loadModel(mm, session, driver) {
     })
 }
 
-function resolveModel(name, modelId, elements, metamodel, session, driver) {
+function resolveModel(modelNode, elements, metamodel, session, driver) {
   const mmValues = Array.from(metamodel.values())
   const hydratedElements = new Map(
     _(elements)
@@ -65,17 +80,24 @@ function resolveModel(name, modelId, elements, metamodel, session, driver) {
       .value())
   return refillReferences(mmValues, hydratedElements, session, driver)
     .then(elems => Array.from(elems.values()))
-    .then(elems => new jsmf.Model(name,
+    .then(elems => new jsmf.Model(modelNode.properties.name,
       mmValues,
       _(elems).values().flatten().value()))
-    .then(m => {m.__jsmf__.uuid = modelId; return m})
+    .then(m => {m.__jsmf__.uuid = modelNode.properties.__jsmf__; return m})
 }
 
-function findModelsIdByName(session, name) {
+function findModelsById(session, mId) {
+  const query =
+    `MATCH (m:Meta:Model {__jsmf__: {mId}})
+     RETURN (m)`
+  return session.run(query, {mId}).then(result => result.records[0])
+}
+
+function findModelsByName(session, name) {
   const query =
     `MATCH (m:Meta:Model {name: {name}})
-     RETURN m.__jsmf__ AS jsmfId`
-  return session.run(query, {name}).then(result => _.map(result.records, x => x.get('jsmfId')))
+     RETURN (m)`
+  return session.run(query, {name}).then(result => result.records)
 }
 
 function getModelNodes(session, mId) {
@@ -85,6 +107,16 @@ function getModelNodes(session, mId) {
      RETURN e, c`
   return session.run(query, {mId})
     .then(result => [mId, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
+}
+
+function getModelNodes(session, mNode) {
+  const mId = mNode.properties.__jsmf__
+  const query =
+    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
+     OPTIONAL MATCH (e)-[:conformsTo]->(c)
+     RETURN e, c`
+  return session.run(query, {mId})
+    .then(result => [mNode, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
 }
 
 function gatherMetaElementsIds(elemAndDescriptors) {

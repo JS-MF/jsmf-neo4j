@@ -50,7 +50,7 @@ function reifyEnum(e, mapping) {
   return result
 }
 
-function reifyModel(m, mapping) {
+function reifyModel(m, mapping, ownTypes) {
   mapping = mapping || new Map()
   if (!(m instanceof jsmf.Model)) {return undefined}
   const mId = uuid.unparse(jsmf.jsmfId(m))
@@ -58,8 +58,9 @@ function reifyModel(m, mapping) {
   if (cache != undefined) { return cache }
   const result = new Model({name: m.__name})
   mapping.set(mId, result)
-  result.elements = _(m.modellingElements).values().flatten().value()
-  if (m.referenceModel instanceof jsmf.Model) {result.referenceModel = reifyModel(m.referenceModel, mapping)}
+  const rawElements = m.elements()
+  result.elements = _.flatMap(rawElements, e => reifyMetaElement(e, mapping, ownTypes))
+  if (m.referenceModel instanceof jsmf.Model) {result.referenceModel = reifyModel(m.referenceModel, mapping, ownTypes)}
   result.__jsmf__.uuid = jsmf.jsmfId(m)
   result.__jsmf__.storeIn = m.__jsmf__.storeIn
   return result
@@ -102,6 +103,18 @@ function reifyReference(name, r, mapping, ownTypes) {
     })
   if (r.type !== jsmf.JSMFAny) {result.type = reifyClass(r.type, mapping, ownTypes)}
   return result
+}
+
+function reifyMetaElement(elt, reified, ownTypes) {
+  const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
+  if (cached) {return cached}
+  const rModel = reifyModel(elt, reified, ownTypes)
+  if (rModel) {return [rModel]}
+  const rClass = reifyClass(elt, reified, ownTypes)
+  if (rClass) {return (new jsmf.Model('', undefined, rClass, true)).elements()}
+  const rEnum = reifyEnum(elt, reified, ownTypes)
+  if (rEnum) {return (new jsmf.Model('', undefined, rEnum, true)).elements()}
+  return [elt]
 }
 
 function reifyPrimitiveType(t, ownTypes) {
@@ -213,4 +226,4 @@ const jsmfMetamodel = new jsmf.Model('jsmfMetamodel', undefined, [Class, Model, 
 
 module.exports = jsmf.modelExport(jsmfMetamodel)
 
-_.assign(module.exports, {reifyEnum, disembodyEnum, reifyClass, disembodyClass, reifyModel, disembodyModel})
+_.assign(module.exports, {reifyEnum, disembodyEnum, reifyClass, disembodyClass, reifyModel, reifyMetaElement, disembodyModel})

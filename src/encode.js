@@ -17,7 +17,7 @@ const _ = require('lodash')
 module.exports.saveModel = function saveModel(m, ownTypes, driver) {
   const reified = new Map()
   const rawElements = gatherElements(m)
-  const elements = _.flatMap(rawElements, e => reifyMetaElement(e, reified, ownTypes))
+  const elements = _.flatMap(rawElements, e => r.reifyMetaElement(e, reified, ownTypes))
   const session = driver.session()
   return saveElements(elements, new Map(), reified, ownTypes, session, driver)
     .then(() => session.close())
@@ -82,7 +82,7 @@ function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session, drive
 function saveRelationship(source, ref, target, associated, elemMap, reified, ownTypes, session, driver) {
   const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
                      , 'MATCH (t) WHERE id(t) in { targetId }'
-                     , `CREATE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
+                     , `MERGE (s) -[r:${ref}${associated ? ' { associated }' : ''}]-> (t)`
                      , 'RETURN r'
                      ]
   return Promise.all(_.map([source, associated, target], e => resolveId(e, elemMap, reified, ownTypes, session, driver)))
@@ -118,24 +118,12 @@ function dryElement(e) {
     {__jsmf__: jid})
 }
 
-function reifyMetaElement(elt, reified, ownTypes) {
-  const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
-  if (cached) {return cached}
-  const rModel = r.reifyModel(elt, reified, ownTypes)
-  if (rModel) {return [rModel]}
-  const rClass = r.reifyClass(elt, reified, ownTypes)
-  if (rClass) {return (new jsmf.Model('', undefined, rClass, true)).elements()}
-  const rEnum = r.reifyEnum(elt, reified, ownTypes)
-  if (rEnum) {return (new jsmf.Model('', undefined, rEnum, true)).elements()}
-  return [elt]
-}
-
 function resolveId(e, elemMap, reified, ownTypes, session, driver) {
   if (e === undefined) {return Promise.resolve(undefined)}
   let elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e
   const elemId = elemMap.get(elem)
   if (elemId) {return Promise.resolve(elemId)}
-  const re = reifyMetaElement(e, reified, ownTypes)
+  const re = r.reifyMetaElement(e, reified, ownTypes)
   return saveElements(re, elemMap, reified, ownTypes, session, driver)
     .then(() => {
       elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e

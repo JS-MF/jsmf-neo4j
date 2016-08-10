@@ -55,3 +55,12 @@ module.exports.loadModel = function loadModelFromName(mm) {
 module.exports.loadModelFromName = function loadModelFromName(name, ownTypes) {
   return decode.loadModelFromName(name, ownTypes, driver)
 }
+
+module.exports.loadModelFromName2 = function loadModelFromName2(name, ownTypes) {
+  return decode.loadModelFromName2(name, ownTypes, driver)
+}
+
+
+module.exports.loadModelFromId = function loadModelFromName2(mId, ownTypes) {
+  return decode.loadModelFromId(mId, ownTypes, driver)
+}
