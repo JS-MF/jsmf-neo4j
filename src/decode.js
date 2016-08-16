@@ -36,10 +36,10 @@ module.exports.loadModelFromName = function loadModelFromName(name, ownTypes, dr
     })
     .then(() => gatherMetaElementsIds(modelElements))
     .then(me => resolveMetaElements(session, me, ownTypes, driver))
-    .then(mm => Promise.all(_.map(Array.from(nodesByModel.entries()), x => resolveModel(x[0], x[1], mm, session, driver))))
+    .then(mm => Promise.all(_.map(Array.from(nodesByModel.entries()), x => resolveModel(x[0], x[1], mm, ownTypes, session, driver))))
 }
 
-module.exports.loadModelFromId = function loadModelFromId(mId, ownTypes, driver) {
+function loadModelFromId(mId, ownTypes, driver, cache) {
   const session = driver.session()
   let modelNode, modelElements
   return findModelsById(session, mId)
@@ -47,8 +47,10 @@ module.exports.loadModelFromId = function loadModelFromId(mId, ownTypes, driver)
     .then(() => getModelNodes(session, modelNode))
     .then(nodes => {modelElements = nodes[1]; return gatherMetaElementsIds(modelElements)})
     .then(me => resolveMetaElements(session, me, ownTypes, driver))
-    .then(mm => resolveModel(modelNode, modelElements, mm, session, driver))
+    .then(mm => resolveModel(modelNode, modelElements, mm, ownTypes, session, driver))
 }
+
+module.exports.loadModelFromId = loadModelFromId
 
 module.exports.loadModel = function loadModel(mm, session, driver) {
   const mySession = session || driver.session()
@@ -70,20 +72,34 @@ module.exports.loadModel = function loadModel(mm, session, driver) {
     })
 }
 
-function resolveModel(modelNode, elements, metamodel, session, driver) {
+function resolveModel(modelNode, elements, metamodel, ownTypes, session, driver) {
+  let result
   const mmValues = Array.from(metamodel.values())
   const hydratedElements = new Map(
     _(elements)
-      .map(e => [e.element, metamodel.get(e.class.properties.__jsmf__)])
+      .map(e => [e.element, resolveMetaRef(e, metamodel)])
       .map(e => hydrateObject(e[0], e[1], metamodel, driver))
       .map(e => [uuid.unparse(jsmf.jsmfId(e)), e])
       .value())
   return refillReferences(mmValues, hydratedElements, session, driver)
     .then(elems => Array.from(elems.values()))
-    .then(elems => new jsmf.Model(modelNode.properties.name,
+    .then(elems => {result = new jsmf.Model(modelNode.properties.name,
       mmValues,
-      _(elems).values().flatten().value()))
-    .then(m => {m.__jsmf__.uuid = modelNode.properties.__jsmf__; return m})
+      _(elems).values().flatten().value())
+    })
+    .then(() => getReferenceModelNode(modelNode.properties.__jsmf__, session))
+    .then(rm => rm ? loadModelFromId(rm.properties.__jsmf__, ownTypes, driver, metamodel) : undefined)
+    .then(rm => {
+      result.referenceModel = rm
+      result.__jsmf__.uuid = modelNode.properties.__jsmf__
+      return result
+    })
+}
+
+function resolveMetaRef(e, metamodel) {
+  if (e.class) {
+    return metamodel.get(e.class.properties.__jsmf__)
+  }
 }
 
 function findModelsById(session, mId) {
@@ -100,29 +116,35 @@ function findModelsByName(session, name) {
   return session.run(query, {name}).then(result => result.records)
 }
 
-function getModelNodes(session, mId) {
+function getModelNodes(session, modelNode) {
+  const mId = modelNode.properties.__jsmf__
   const query =
     `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
      OPTIONAL MATCH (e)-[:conformsTo]->(c)
      RETURN e, c`
   return session.run(query, {mId})
-    .then(result => [mId, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
+    .then(result => [modelNode, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
 }
 
-function getModelNodes(session, mNode) {
-  const mId = mNode.properties.__jsmf__
+function getReferenceModelNode(mId, session) {
   const query =
-    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
-     OPTIONAL MATCH (e)-[:conformsTo]->(c)
-     RETURN e, c`
+    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:referenceModel]->(e)
+     RETURN e`
   return session.run(query, {mId})
-    .then(result => [mNode, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
+    .then(res => _.get(res, ['records', 0]))
+    .then(result => result ? result.get('e') : undefined)
 }
 
 function gatherMetaElementsIds(elemAndDescriptors) {
   return _.reduce(
     elemAndDescriptors,
-    (acc, e) => e.class ? addClass(acc, e.class.properties.__jsmf__) : addClass(acc, e.properties.__jsmf__),
+    (acc, e) => {
+      if (e.class) {
+        return addClass(acc, e.class.properties.__jsmf__)
+      } else {
+        return addClass(acc, e.element.properties.__jsmf__)
+      }
+    },
     new Set())
 }
 
