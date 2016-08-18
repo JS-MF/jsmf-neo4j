@@ -375,28 +375,18 @@ describe('load models', () => {
   beforeEach(cleanDB)
   after(closeNeo4j)
 
-  it('loads a simple element', () => {
-    const A = new jsmf.Class('A', [])
-    const MM = new jsmf.Model('MM', {}, [A])
-    const elemId = uuid1
-    const initDB = session.run('CREATE (a:A {__jsmf__: { elemId }})', {elemId})
-    return initDB
-      .then(() => n.loadModel(MM))
-      .then(x => {
-        x.elements().length.should.equal(1)
-        x.modellingElements.A.length.should.equal(1)
-        jsmf.jsmfId(x.modellingElements.A[0]).should.eql(uuid.parse(elemId))
-      })
-  })
-
   it('loads a simple class', () => {
-    const elemId = uuid1
-    const initDB = session.run('CREATE (a:Meta:Class {name: "A", __jsmf__: { elemId }})', {elemId})
+    const modelId = uuid1
+    const elemId = uuid2
+    const query = `CREATE (m:Meta:Model {name: "test", __jsmf__: { modelId }})
+                   CREATE (a:Meta:Class {name: "A", __jsmf__: { elemId }})
+                   CREATE (m)-[:elements]->(a)`
+    const initDB = session.run(query, {modelId, elemId})
     return initDB
-      .then(() => n.loadModel(r.jsmfMetamodel))
+      .then(() => n.loadModelFromId(modelId))
       .then(x => {
         function createA() {
-          let A = r.disembodyClass(x.elements()[0])
+          let A = x.elements()[0]
           return new A()
         }
         (createA()).should.not.throw()
@@ -406,13 +396,19 @@ describe('load models', () => {
   it('loads a class with an attribute', () => {
     const elemId = uuid1
     const attrId = uuid2
-    const initDB = session.run('CREATE (a:Meta:Class {name: "A", __jsmf__: { elemId }})-[:attributes]->(attr:Meta:Attribute {name: "foo", primitiveType: "String", __jsmf__: { attrId }})', {elemId, attrId})
+    const modelId = uuid3
+    const query = `CREATE (m:Meta:Model {name: "test", __jsmf__: { modelId }})
+                   CREATE (c:Meta:Class {name: "A", __jsmf__: { elemId }})
+                   CREATE (attr:Meta:Attribute {name: "foo", primitiveType: "String", __jsmf__: { attrId }})
+                   CREATE (m)-[:elements]->(c)
+                   CREATE (c)-[:attributes]->(attr)`
+    const initDB = session.run(query, {elemId, attrId, modelId})
     return initDB
-      .then(() => n.loadModel(r.jsmfMetamodel))
+      .then(() => n.loadModelFromId(modelId))
       .then(x => {
         function createA(y) {
           return function() {
-            let A = r.disembodyClass(x.modellingElements.Class[0])
+            let A = x.classes.A[0]
             return new A({foo: y})
           }
         }
@@ -421,13 +417,37 @@ describe('load models', () => {
       })
   })
 
-  it('loads an element with a single property', () => {
-    const A = new jsmf.Class('A', [], {x: Number})
-    const MM = new jsmf.Model('MM', {}, [A])
-    const params = {elemId: uuid1, elemX: 12}
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { elemId }, x: { elemX }})`, params)
+  it('loads a simple element', () => {
+    const modelId = uuid1
+    const elemId = uuid2
+    const classId = uuid3
+    const query = `CREATE (m:Meta:Model {name: "test", __jsmf__: { modelId }})
+                   CREATE (a:A {__jsmf__: { elemId }})
+                   CREATE (c:Meta:Class {name: "A", __jsmf__: { classId }})
+                   CREATE (m)-[:elements]->(a)
+                   CREATE (a)-[:conformsTo]->(c)`
+    const initDB = session.run(query, {elemId, modelId, classId})
     return initDB
-      .then(() => n.loadModel(MM))
+      .then(() => n.loadModelFromId(uuid1))
+      .then(x => {
+        x.elements().length.should.equal(1)
+        x.modellingElements.A.length.should.equal(1)
+        jsmf.jsmfId(x.modellingElements.A[0]).should.eql(uuid.parse(elemId))
+      })
+  })
+
+  it('loads an element with a single property', () => {
+    const params = {elemId: uuid1, elemX: 12, modelId: uuid2, classId: uuid3, attrId: uuid4}
+    const query = `CREATE (m:Meta:Model {name: "test", __jsmf__: { modelId }})
+                   CREATE (a:A {__jsmf__: { elemId }, x: { elemX }})
+                   CREATE (c:Meta:Class {name: "A", __jsmf__: { classId }})
+                   CREATE (attr:Meta:Attribute {name: "x", primitiveType: "Number", __jsmf__: { attrId }})
+                   CREATE (m)-[:elements]->(a)
+                   CREATE (c)-[:atributes]->(attr)
+                   CREATE (a)-[:conformsTo]->(c)`
+    const initDB = session.run(query, params)
+    return initDB
+      .then(() => n.loadModelFromId(params.modelId))
       .then(x => {
         x.elements().length.should.equal(1)
         x.modellingElements.A.length.should.equal(1)
@@ -436,12 +456,19 @@ describe('load models', () => {
   })
 
   it('loads an element with properties', () => {
-    const A = new jsmf.Class('A', [], {x: Number, y: String})
-    const MM = new jsmf.Model('MM', {}, [A])
-    const params = {elemId: uuid1, x: 12, y: 'foo'}
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { elemId }, x: { x }, y: { y }})`, params)
+    const params = {elemId: uuid1, x: 12, y: 'foo', modelId: uuid2, classId: uuid3, attrId: uuid4, attr2Id: uuid5}
+    const query = `CREATE (m:Meta:Model {name: "test", __jsmf__: { modelId }})
+                   CREATE (a:A {__jsmf__: { elemId }, x: { x }, y: { y }})
+                   CREATE (c:Meta:Class {name: "A", __jsmf__: { classId }})
+                   CREATE (attr:Meta:Attribute {name: "x", primitiveType: "Number", __jsmf__: { attrId }})
+                   CREATE (attr2:Meta:Attribute {name: "x", primitiveType: "String", __jsmf__: { attr2Id }})
+                   CREATE (m)-[:elements]->(a)
+                   CREATE (c)-[:atributes]->(attr)
+                   CREATE (c)-[:atributes]->(attr2)
+                   CREATE (a)-[:conformsTo]->(c)`
+    const initDB = session.run(query, params)
     return initDB
-      .then(() => n.loadModel(MM))
+      .then(() => n.loadModelFromId(params.modelId))
       .then(x => {
         x.elements().length.should.equal(1)
         x.modellingElements.A.length.should.equal(1)
@@ -449,39 +476,31 @@ describe('load models', () => {
         x.modellingElements.A[0].y.should.equal(params.y)
       })
   })
+})
 
-  it('loads an element with a reference', () => {
+describe('Round trip transformation', () => {
+
+  before(initNeo4jConnector)
+  beforeEach(cleanDB)
+  after(closeNeo4j)
+
+  it('works on a model with an element and a reference', () => {
     const A = new jsmf.Class('A', [])
     A.addReference('ref', A, -1)
     const MM = new jsmf.Model('MM', {}, [A])
     const params = { aId: uuid1.toLowerCase()
                    , bId: uuid2.toLowerCase()
                    }
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:A {__jsmf__: { bId }})`, params)
-    return initDB
-      .then(x => x)
-      .then(() => n.loadModel(MM))
+    const a = new A()
+    const b = new A()
+    a.ref = b
+    const M = new jsmf.Model('M', MM, [a, b])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(2)
         x.modellingElements.A.length.should.equal(2)
-        x.modellingElements.A[0].ref.length.should.equal(1)
-      })
-  })
-
-  it('loads an element with a reference', () => {
-    const A = new jsmf.Class('A', [])
-    A.addReference('ref', A, -1)
-    const MM = new jsmf.Model('MM', {}, [A])
-    const params = { aId: uuid1
-                   , bId: uuid2
-                   }
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:A {__jsmf__: { bId }})`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
-      .then(x => {
-        x.elements().length.should.equal(2)
-        x.modellingElements.A.length.should.equal(2)
-        x.modellingElements.A[0].ref.length.should.equal(1)
+        _.flatMap(x.modellingElements.A[0], 'ref').length.should.equal(1)
       })
   })
 

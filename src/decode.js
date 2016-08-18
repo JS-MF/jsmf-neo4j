@@ -21,79 +21,77 @@ const _ = require('lodash')
     , uuid = require('uuid')
     , r = require('./reify')
 
-module.exports.loadModelFromName = function loadModelFromName(name, ownTypes, driver) {
+function loadModelFromName(name, referenceModel, ownTypes, driver) {
   const session = driver.session()
-  let nodesByModel, modelElements
+  let nodeModels, dryNodes, dryMeta
+  const elements = referenceModel instanceof jsmf.Model
+    ? _.fromPairs(_.map(referenceModel.elements(), c => [uuid.unparse(jsmf.jsmfId(c)), c]))
+    : {}
   return findModelsByName(session, name)
-    .then(mNodes => Promise.all(_.map(mNodes, mNode => getModelNodes(session, mNode.get('m')))))
-    .then(mes => {
-      modelElements = _.flatMap(mes, e => e[1])
-      nodesByModel = _(mes).reduce((acc, e) => {
-        const modelNodes = acc.get(e[0]) || []
-        acc.set(e[0], modelNodes.concat(e[1]))
-        return acc
-      }, new Map())
+    .then(res => nodeModels = res)
+    .then(() => findModelsNodesByName(session, name))
+    .then(res => {
+      const part = _.partition(res, isMetaElement)
+      dryMeta = part[0]
+      dryNodes = part[1]
     })
-    .then(() => gatherMetaElementsIds(modelElements))
-    .then(me => resolveMetaElements(session, me, ownTypes, driver))
-    .then(mm => Promise.all(_.map(Array.from(nodesByModel.entries()), x => resolveModel(x[0], x[1], mm, ownTypes, session, driver))))
+    .then(() => dryMeta = _.filter(dryMeta, e => elements[e.properties.__jsmf__] === undefined))
+    .then(() => loadClasses(session, dryMeta, elements, ownTypes, driver))
+    .then(() => loadElements(session, dryNodes.concat(nodeModels), elements, ownTypes, driver))
+    .then(() => _.reduce(nodeModels, (acc, n) => {
+      const model = elements[n.properties.__jsmf__]
+      r.disembodyModel(model, acc)
+      return acc
+    }, new Map()))
+    .then(m => Array.from(m.values()))
 }
 
-function loadModelFromId(mId, ownTypes, driver, cache) {
+module.exports.loadModelFromName = loadModelFromName
+
+function loadModelFromId(mId, referenceModel, ownTypes, driver) {
   const session = driver.session()
-  let modelNode, modelElements
-  return findModelsById(session, mId)
-    .then(mNode => modelNode = mNode.get('m'))
-    .then(() => getModelNodes(session, modelNode))
-    .then(nodes => {modelElements = nodes[1]; return gatherMetaElementsIds(modelElements)})
-    .then(me => resolveMetaElements(session, me, ownTypes, driver))
-    .then(mm => resolveModel(modelNode, modelElements, mm, ownTypes, session, driver))
+  let dryNodes, dryMeta
+  const elements = referenceModel instanceof jsmf.Model
+    ? _.fromPairs(_.map(referenceModel.elements(), c => [uuid.unparse(jsmf.jsmfId(c)), c]))
+    : {}
+  return findModelsNodesById(session, mId)
+    .then(res => {
+      const part = _.partition(res, isMetaElement)
+      dryMeta = part[0]
+      dryNodes = part[1]
+    })
+    .then(() => dryMeta = _.filter(dryMeta, e => elements[e.properties.__jsmf__] === undefined))
+    .then(() => loadClasses(session, dryMeta, elements, ownTypes, driver))
+    .then(() => findModelById(session, mId))
+    .then(nodeModel => loadElements(session, dryNodes.concat([nodeModel]), elements, ownTypes, driver))
+    .then(() => r.disembodyModel(elements[mId], new Map()))
 }
 
 module.exports.loadModelFromId = loadModelFromId
 
-module.exports.loadModel = function loadModel(mm, session, driver) {
-  const mySession = session || driver.session()
-  const classes = _.map(mm.classes, x => x[0])
-  return Promise.all(_.map(classes, k => loadElements(k, mySession)))
-    .then(elementsByClass =>
-      _.flatMap(elementsByClass, elements => {
-        const cls = elements[0]
-        const records = elements[1].records
-        return _.flatMap(records, x => refillAttributes(cls, x.get('a'), driver))
-      })
-    )
-    .then(elements => filterClassHierarchy(elements))
-    .then(elements => new Map(_.map(elements, e => [uuid.unparse(jsmf.jsmfId(e)), e])))
-    .then(elements => refillReferences(classes, elements, mySession, driver))
-    .then(values => {
-      if (session !== mySession) {mySession.close()}
-      return new jsmf.Model('LoadedModel', mm, Array.from(values.values()))
-    })
+
+function loadClasses(session, dryMeta, elements, ownTypes, driver) {
+  const hydratedMetaElements = _.reduce(dryMeta, (acc, e) => hydrateMetaElement(e, acc, driver), {})
+  return Promise.all(_.map(hydratedMetaElements, (v, k) => refillMetaReferences(session, k, v, hydratedMetaElements)))
+    .then(() => _.reduce(hydratedMetaElements, (cache, e) => disembodyMetaElements(e, ownTypes, cache), new Map()))
+    .then(meta => _.reduce(Array.from(meta.entries()), (acc, v) => {
+      acc[uuid.unparse(jsmf.jsmfId(v[0]))] = v[1]
+      return acc
+    }, elements))
 }
 
-function resolveModel(modelNode, elements, metamodel, ownTypes, session, driver) {
-  let result
-  const mmValues = Array.from(metamodel.values())
-  const hydratedElements = new Map(
-    _(elements)
-      .map(e => [e.element, resolveMetaRef(e, metamodel)])
-      .map(e => hydrateObject(e[0], e[1], metamodel, driver))
-      .map(e => [uuid.unparse(jsmf.jsmfId(e)), e])
-      .value())
-  return refillReferences(mmValues, hydratedElements, session, driver)
-    .then(elems => Array.from(elems.values()))
-    .then(elems => {result = new jsmf.Model(modelNode.properties.name,
-      mmValues,
-      _(elems).values().flatten().value())
-    })
-    .then(() => getReferenceModelNode(modelNode.properties.__jsmf__, session))
-    .then(rm => rm ? loadModelFromId(rm.properties.__jsmf__, ownTypes, driver, metamodel) : undefined)
-    .then(rm => {
-      result.referenceModel = rm
-      result.__jsmf__.uuid = modelNode.properties.__jsmf__
-      return result
-    })
+function loadElements(session, dryNodes, elements, ownTypes, driver) {
+  const instances = {}
+  return Promise.all(_.map(dryNodes, n => resolveClass(session, n, elements)))
+    .then(_.flatten)
+    .then(res => _(res).map(e => refillAttributes(e[0], e[1], driver)).reduce((acc, e) => {
+      const jsmfId = uuid.unparse(jsmf.jsmfId(e))
+      instances[jsmfId] = e
+      acc[jsmfId] = e
+      return acc
+    }, elements))
+    .then(() => Promise.all(_.map(instances, (v, k) => refillReferences(session, k, v, elements))))
+    .then(() => elements)
 }
 
 function resolveMetaRef(e, metamodel) {
@@ -102,77 +100,100 @@ function resolveMetaRef(e, metamodel) {
   }
 }
 
-function findModelsById(session, mId) {
-  const query =
-    `MATCH (m:Meta:Model {__jsmf__: {mId}})
-     RETURN (m)`
-  return session.run(query, {mId}).then(result => result.records[0])
+function isMetaElement(e) {
+  const labels = e.labels
+  return _.includes(labels, 'Meta') && !(_.includes(labels, 'Model'))
 }
+
+function findModelById(session, mId) {
+  const query = 'MATCH (m:Meta:Model {__jsmf__: {mId}}) RETURN m'
+  return session.run(query, {mId}).then(result => result.records[0].get('m'))
+}
+
 
 function findModelsByName(session, name) {
+  const query = 'MATCH (m:Meta:Model {name: {name}}) RETURN m'
+  return session.run(query, {name}).then(result => _.map(result.records, r => r.get('m')))
+}
+
+function findModelsNodesByName(session, name) {
   const query =
-    `MATCH (m:Meta:Model {name: {name}})
-     RETURN (m)`
-  return session.run(query, {name}).then(result => result.records)
+    `MATCH (m:Meta:Model {name: {name}})-[*]->(n)
+     RETURN DISTINCT n`
+  return session.run(query, {name}).then(result => _.map(result.records, r => r.get('n')))
 }
 
-function getModelNodes(session, modelNode) {
-  const mId = modelNode.properties.__jsmf__
+function findModelsNodesById(session, mId) {
   const query =
-    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:elements]->(e)
-     OPTIONAL MATCH (e)-[:conformsTo]->(c)
-     RETURN e, c`
-  return session.run(query, {mId})
-    .then(result => [modelNode, _.map(result.records, x => ({element: x.get('e'), class: x.get('c')}))])
+    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[*]->(n)
+     RETURN DISTINCT n`
+  return session.run(query, {mId}).then(result => _.map(result.records, r => r.get('n')))
 }
 
-function getReferenceModelNode(mId, session) {
-  const query =
-    `MATCH (m:Meta:Model {__jsmf__: {mId}})-[:referenceModel]->(e)
-     RETURN e`
-  return session.run(query, {mId})
-    .then(res => _.get(res, ['records', 0]))
-    .then(result => result ? result.get('e') : undefined)
+function hydrateMetaElement(e, objectsMap, driver) {
+  const labels = e.labels
+  let cls
+  if (_.includes(labels, 'EnumValue')) {
+    cls = r.EnumValue
+  } else if (_.includes(labels, 'Enum')) {
+    cls = r.Enum
+  } else if (_.includes(labels, 'Attribute')) {
+    cls = r.Attribute
+  } else if (_.includes(labels, 'Reference')) {
+    cls = r.Reference
+  } else if (_.includes(labels, 'Class')) {
+    cls = r.Class
+  }
+  if (cls) {
+    objectsMap[e.properties.__jsmf__] = refillAttributes(cls, e, driver)
+  }
+  return objectsMap
 }
 
-function gatherMetaElementsIds(elemAndDescriptors) {
-  return _.reduce(
-    elemAndDescriptors,
-    (acc, e) => {
-      if (e.class) {
-        return addClass(acc, e.class.properties.__jsmf__)
-      } else {
-        return addClass(acc, e.element.properties.__jsmf__)
-      }
-    },
-    new Set())
+function resolveClass(session, e, classMap) {
+  const query = 'MATCH (n {__jsmf__: {jsmfId}})-[:conformsTo]->(m) RETURN m.__jsmf__'
+  return session.run(query, {jsmfId: e.properties.__jsmf__})
+           .then(res => {
+             const result = _.get(res, ['records', 0])
+             return result ? [[classMap[result.get(0)], e]] : (isModel(e) ? [[r.Model, e]] : [])
+           })
 }
 
-function addClass(s, e) {
-  s.add(e)
-  return s
+function isModel(e) {
+  const labels = e.labels
+  return  (_.includes(labels, 'Meta')) && (_.includes(labels, 'Model'))
 }
 
-function resolveMetaElements(session, idSet, ownTypes, driver) {
-  return loadModelByIds(session, idSet, r.jsmfMetamodel, driver)
-    .then(es => _.reduce(es, (cache, e) => disembodyStuff(e, ownTypes, cache), new Map()))
-    .then(res => new Map(_.map(Array.from(res), kv => [uuid.unparse(jsmf.jsmfId(kv[0])), kv[1]])))
+function refillAttributes(cls, e, driver) {
+  const res = cls.newInstance()
+  _.forEach(_.omit(e.properties, ['__jsmf__']), (v, k) => {res[k] = v})
+  try {res.__jsmf__.uuid = uuid.parse(e.properties.__jsmf__)} catch (err) {}
+  setAsStored(res, driver)
+  return res
 }
 
-function loadModelByIds(session, idSet, jsmfMM, driver) {
-  return module.exports.loadModel(jsmfMM, session, driver)
-    .then(m => m.elements())
-    .then(es => _.filter(es, e => idSet.has(uuid.unparse(jsmf.jsmfId(e)))))
+function refillMetaReferences(session, key, element, objectMap) {
+  const query = 'MATCH (m {__jsmf__: { key }})-[r]->(n) RETURN r, n.__jsmf__'
+  return session.run(query, {key})
+           .then(res => res.records)
+           .then(res => _(res).groupBy(r => r.get('r').type).forEach((values, ref) => {
+             element[ref] = _(values).map(r => objectMap[r.get(1)]).filter(r => r !== undefined).value()
+           }))
 }
 
-function hydrateObject(e, cls, classMap, driver) {
-  return cls === undefined
-    ? classMap.get(uuid.unparse(e.properties.__jsmf__))
-    : refillAttributes(cls, e, driver)
+function refillReferences(session, key, element, objectMap) {
+  const query = 'MATCH (m {__jsmf__: { key }})-[r]->(n) RETURN r, n.__jsmf__'
+  return session.run(query, {key})
+           .then(res => res.records)
+           .then(res => {
+             _(res).groupBy(r => r.get('r').type).omit('conformsTo').forEach((values, ref) => {
+               element[ref] = _(values).map(r => objectMap[r.get(1)]).filter(r => r !== undefined).value()
+             })
+           })
 }
 
-function disembodyStuff(e, ownTypes, cache) {
-  const cached = cache.get(jsmf.jsmfId(e))
+function disembodyMetaElements(e, ownTypes, cache) {
+  const cached = cache.get(e)
   if (!cached) {
     const c = e.conformsTo()
     if (c === r.Class) { r.disembodyClass(e, cache, ownTypes) }
@@ -183,84 +204,6 @@ function disembodyStuff(e, ownTypes, cache) {
   return cache
 }
 
-function loadElements(cls, session) {
-  const query = `MATCH (a:${cls.__name}) RETURN (a)`
-  return session.run(query).then(x => [cls, x])
-}
-
-function refillAttributes(cls, e, driver) {
-  const res = cls.newInstance()
-  _.forEach(cls.getAllAttributes(), (t, x) => {res[x] = e.properties[x]})
-  try {res.__jsmf__.uuid = uuid.parse(e.properties.__jsmf__)} catch (err) {}
-  setAsStored(res, driver)
-  return res
-}
-
-function filterClassHierarchy(elements) {
-  const res = _.reduce(elements, (acc, e) => checkElement(acc, e), new Map())
-  return Array.from(res.values())
-}
-
-function checkElement(m, elem) {
-  const elemId = uuid.unparse(jsmf.jsmfId(elem))
-  const old = m.get(elemId)
-  if (old === undefined) { m.set(elemId, elem) }
-  else {
-    const oldClasses = old.conformsTo().getInheritanceChain()
-    if (!_.includes(oldClasses, elem.conformsTo())) {
-      m.set(elemId, elem)
-    }
-  }
-  return m
-}
-
-function refillReferences(classes, elements, session, driver) {
-  const silentProperties = new Map()
-  return Promise.all(
-      _(classes).filter(jsmf.isJSMFClass)
-            .flatMap(x => _.map(x.getAllReferences(), (ref, refName) => [x, ref, refName]))
-            .map(x => refillReference(x[2], x[0], x[1], elements, silentProperties, session, driver))
-            .value()).then(() => elements)
-}
-
-function refillReference(refName, cls, ref, elements, silentProperties, session, driver) {
-  const clsSilentProperties = silentProperties.get(cls) || new Set()
-  if  (clsSilentProperties.has(refName)) { return undefined }
-  if (ref.opposite != undefined) { silentProperties.set(ref.type, clsSilentProperties.add(ref.opposite)) }
-  const query = `MATCH (s:${cls.__name})-[a:${refName}]->(t:${ref.type.__name}) RETURN s, t, a`
-  return session.run(query)
-    .then(res => _.map(res.records,
-                  rec => resolveReference(refName, cls, rec.get('s'),
-                                          ref.type, rec.get('t'),
-                                          ref.associated, rec.get('a'),
-                                          elements,
-                                          driver)))
-}
-
-function resolveReference(name, srcClass, s, targetClass, t, associatedClass, a, elements, driver) {
-  const source = resolveElement(srcClass, s, elements, driver)
-  const target = resolveElement(targetClass, t, elements, driver)
-  const setterName = 'add' + _.upperFirst(name)
-  if (_.isEmpty(a.properties)) {
-    source[setterName](target)
-  } else {
-    const associated = resolveElement(associatedClass, a, elements, driver)
-    source[setterName](target, associated)
-  }
-}
-
-function resolveElement(cls, e, elements, driver) {
-  const key = e.properties.__jsmf__
-  let res = elements.get(key)
-  if (!res) {
-    res = refillAttributes(cls, e, driver)
-    elements.set(key, res)
-  }
-  return res
-}
-
 function setAsStored(e, driver) {
   e.__jsmf__.storedIn = driver._url
 }
-
-

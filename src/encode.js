@@ -80,16 +80,16 @@ function saveElemRelationship(e, ref, elemMap, reified, ownTypes, session, drive
 }
 
 function saveRelationship(source, ref, target, associated, elemMap, reified, ownTypes, session, driver) {
-  const statements = [ 'MATCH (s) WHERE id(s) in { sourceId }'
-                     , 'MATCH (t) WHERE id(t) in { targetId }'
-                     , `MERGE (s) -[r:${ref}]-> (t)`
-                     , associated ? 'ON CREATE SET r = { associated }' : ''
-                     , 'RETURN r'
-                     ]
+  const statements = `MATCH (s) WHERE id(s) in { sourceId }
+                      MATCH (t) WHERE id(t) in { targetId }
+                      MERGE (s) -[r:${ref}]-> (t)
+                      ${associated ? 'ON CREATE SET r = { associated }' : ''}
+                      RETURN r
+                     `
   return Promise.all(_.map([source, associated, target], e => resolveId(e, elemMap, reified, ownTypes, session, driver)))
     .then(ids => Object.assign({sourceId: ids[0], targetId: ids[2]}, associated!==undefined?{associated: dryElement(associated)}:{})
     )
-    .then(params => session.run(statements.join(' '), params))
+    .then(params => session.run(statements, params))
 }
 
 

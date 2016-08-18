@@ -17,9 +17,6 @@ TODO:
 'use strict'
 
 const neo4j = require('neo4j-driver').v1
-    , _ = require('lodash')
-    , jsmf = require('jsmf-core')
-    , r = require('./src/reify')
     , encode = require('./src/encode')
     , decode = require('./src/decode')
 
@@ -48,19 +45,10 @@ module.exports.saveModel = function saveModel(m, ownTypes) {
   return encode.saveModel(m, ownTypes, driver)
 }
 
-module.exports.loadModel = function loadModelFromName(mm) {
-  return decode.loadModel(mm, undefined, driver)
+module.exports.loadModelByName = module.exports.loadModelFromName = function loadModelFromName(name, mm, ownTypes) {
+  return decode.loadModelFromName(name, mm, ownTypes, driver)
 }
 
-module.exports.loadModelFromName = function loadModelFromName(name, ownTypes) {
-  return decode.loadModelFromName(name, ownTypes, driver)
-}
-
-module.exports.loadModelFromName2 = function loadModelFromName2(name, ownTypes) {
-  return decode.loadModelFromName2(name, ownTypes, driver)
-}
-
-
-module.exports.loadModelFromId = function loadModelFromName2(mId, ownTypes) {
-  return decode.loadModelFromId(mId, ownTypes, driver)
+module.exports.loadModelById = module.exports.loadModelFromId = function loadModelFromId(mId, mm, ownTypes) {
+  return decode.loadModelFromId(mId, mm, ownTypes, driver)
 }
