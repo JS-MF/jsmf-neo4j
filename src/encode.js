@@ -17,7 +17,7 @@ const _ = require('lodash')
 module.exports.saveModel = function saveModel(m, ownTypes, driver) {
   const reified = new Map()
   const rawElements = gatherElements(m)
-  const elements = _.flatMap(rawElements, e => r.reifyMetaElement(e, reified, ownTypes))
+  const elements = _.flatMap(rawElements, e => r.reifyMetaElement(e, reified, ownTypes)[1])
   const session = driver.session()
   return saveElements(elements, new Map(), reified, ownTypes, session, driver)
     .then(() => session.close())
@@ -124,7 +124,7 @@ function resolveId(e, elemMap, reified, ownTypes, session, driver) {
   let elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e
   const elemId = elemMap.get(elem)
   if (elemId) {return Promise.resolve(elemId)}
-  const re = r.reifyMetaElement(e, reified, ownTypes)
+  const re = r.reifyMetaElement(e, reified, ownTypes)[1]
   return saveElements(re, elemMap, reified, ownTypes, session, driver)
     .then(() => {
       elem = reified.get(uuid.unparse(jsmf.jsmfId(e))) || e

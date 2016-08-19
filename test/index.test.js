@@ -643,10 +643,9 @@ describe('Round trip transformation', () => {
     return n.saveModel(M)
       .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(MM))))
       .then(x => {
-        console.log(x)
-        x.elements().length.should.equal(2)
+        x.elements().length.should.equal(1)
         x.modellingElements.Class.length.should.equal(1)
-        x.classes.A[0].ref.length.should.equal(1)
+        x.classes.A[0].references.should.have.property('ref')
       })
   })
 

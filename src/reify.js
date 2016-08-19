@@ -59,7 +59,7 @@ function reifyModel(m, mapping, ownTypes) {
   const result = new Model({name: m.__name})
   mapping.set(mId, result)
   const rawElements = m.elements()
-  result.elements = _.flatMap(rawElements, e => reifyMetaElement(e, mapping, ownTypes))
+  result.elements = _(rawElements).map(e => reifyMetaElement(e, mapping, ownTypes)).map(0).value()
   if (m.referenceModel instanceof jsmf.Model) {result.referenceModel = reifyModel(m.referenceModel, mapping, ownTypes)}
   result.__jsmf__.uuid = jsmf.jsmfId(m)
   result.__jsmf__.storeIn = m.__jsmf__.storeIn
@@ -107,14 +107,14 @@ function reifyReference(name, r, mapping, ownTypes) {
 
 function reifyMetaElement(elt, reified, ownTypes) {
   const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
-  if (cached) {return [cached]}
+  if (cached) {return [cached, [cached]]}
   const rModel = reifyModel(elt, reified, ownTypes)
-  if (rModel) {return [rModel]}
+  if (rModel) {return [rModel, [rModel]]}
   const rClass = reifyClass(elt, reified, ownTypes)
-  if (rClass) {return (new jsmf.Model('', undefined, rClass, true)).elements()}
+  if (rClass) {return [rClass, (new jsmf.Model('', undefined, rClass, true)).elements()]}
   const rEnum = reifyEnum(elt, reified, ownTypes)
-  if (rEnum) {return (new jsmf.Model('', undefined, rEnum, true)).elements()}
-  return [elt]
+  if (rEnum) {return [rEnum, (new jsmf.Model('', undefined, rEnum, true)).elements()]}
+  return [elt, [elt]]
 }
 
 function reifyPrimitiveType(t, ownTypes) {
