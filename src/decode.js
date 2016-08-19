@@ -187,7 +187,18 @@ function refillReferences(session, key, element, objectMap) {
            .then(res => res.records)
            .then(res => {
              _(res).groupBy(r => r.get('r').type).omit('conformsTo').forEach((values, ref) => {
-               element[ref] = _(values).map(r => objectMap[r.get(1)]).filter(r => r !== undefined).value()
+               const refContent = element.__jsmf__.references[ref] = []
+               const association = element.__jsmf__.associated[ref] = []
+               _(values).forEach(r => {
+                 const target = objectMap[r.get(1)]
+                 if (target !== undefined) {
+                   refContent.push(target)
+                   const associatedId = r.get(0).properties.__jsmf__
+                   if (associatedId !== undefined) {
+                     association.push({elem: target, associated: objectMap[associatedId]})
+                   }
+                 }
+               })
              })
            })
 }

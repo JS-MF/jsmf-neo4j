@@ -107,7 +107,7 @@ function reifyReference(name, r, mapping, ownTypes) {
 
 function reifyMetaElement(elt, reified, ownTypes) {
   const cached = reified.get(uuid.unparse(jsmf.jsmfId(elt)))
-  if (cached) {return cached}
+  if (cached) {return [cached]}
   const rModel = reifyModel(elt, reified, ownTypes)
   if (rModel) {return [rModel]}
   const rClass = reifyClass(elt, reified, ownTypes)

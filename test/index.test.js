@@ -315,12 +315,12 @@ describe('saveModel', () => {
 
   it('saves associated data attributes', () => {
     const A = new jsmf.Class('A', [])
-    const B = new jsmf.Class('B', [], {x: Number})
+        , B = new jsmf.Class('B', [], {x: Number})
     A.addReference('a', A, 1, undefined, undefined, B)
     const MM = new jsmf.Model('MM', {}, A)
-    let a0 = new A()
-      , a1 = new A()
-      , b  = new B({x: 12})
+    const a0 = new A()
+        , a1 = new A()
+        , b  = new B({x: 12})
     a0.addA(a1, b)
     const M = new jsmf.Model('M', MM, [a0,a1])
     const jsmfId = uuid.unparse(jsmf.jsmfId(b))
@@ -492,7 +492,7 @@ describe('Round trip transformation', () => {
                    , bId: uuid2.toLowerCase()
                    }
     const a = new A()
-    const b = new A()
+        , b = new A()
     a.ref = b
     const M = new jsmf.Model('M', MM, [a, b])
     return n.saveModel(M)
@@ -509,12 +509,12 @@ describe('Round trip transformation', () => {
     const B = new jsmf.Class('B', [])
     A.addReference('ref', B, -1, 'back', -1)
     const MM = new jsmf.Model('MM', {}, [A, B])
-    const params = { aId: uuid1
-                   , bId: uuid2
-                   }
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:B {__jsmf__: { bId }}) CREATE (a)<-[:back]-(b)`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const a = new A()
+        , b = new B()
+    a.ref = b
+    const M = new jsmf.Model('M', MM, [a, b])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(2)
         x.modellingElements.A.length.should.equal(1)
@@ -526,17 +526,21 @@ describe('Round trip transformation', () => {
 
   it('populate associated data', () => {
     const A = new jsmf.Class('A', [])
-    const B = new jsmf.Class('B', [])
-    const C = new jsmf.Class('C', [])
+        , B = new jsmf.Class('B', [])
+        , C = new jsmf.Class('C', [])
     A.addReference('ref', B, -1, 'back', -1, C)
     const MM = new jsmf.Model('MM', {}, [A, B])
     const params = { aId: uuid1
                    , bId: uuid2
                    , cId: uuid3
                    }
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref {__jsmf__: { cId }}]->(b:B {__jsmf__: { bId }})`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const a = new A()
+        , b = new B()
+        , c = new C()
+    a.addRef(b, c)
+    const M = new jsmf.Model('M', MM, [a, b, c])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(3)
         x.modellingElements.A.length.should.equal(1)
@@ -549,21 +553,18 @@ describe('Round trip transformation', () => {
 
   it('populate associated data with reference', () => {
     const A = new jsmf.Class('A', [])
-    const B = new jsmf.Class('B', [])
-    const C = new jsmf.Class('C', [], {}, {a: {type: A}})
+        , B = new jsmf.Class('B', [])
+        , C = new jsmf.Class('C', [], {}, {a: {type: A}})
     A.addReference('ref', B, -1, 'back', -1, C)
     const MM = new jsmf.Model('MM', {}, [A, B, C])
-    const params = { aId: uuid1
-                   , bId: uuid2
-                   , cId: uuid3
-                   }
-    const dbInit =
-      [ `CREATE (a:A {__jsmf__: { aId }})-[:ref {__jsmf__: { cId }}]->(b:B {__jsmf__: { bId }})`
-      , `CREATE (d:C {__jsmf__: { cId }})-[:a]->(a)`
-      ]
-    const initDB = session.run(dbInit.join(' '), params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const a = new A()
+        , b = new B()
+        , c = new C()
+    a.addRef(b, c)
+    c.a = a
+    const M = new jsmf.Model('M', MM, [a, b, c])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(3)
         x.modellingElements.A.length.should.equal(1)
@@ -577,31 +578,31 @@ describe('Round trip transformation', () => {
 
   it('resolves correctly inherited attributes', () => {
     const A = new jsmf.Class('A', [], {x: Number})
-    const B = new jsmf.Class('B', A)
+        , B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [B])
-    const params = {elemId: uuid1, elemX: 12}
-    const initDB = session.run(`CREATE (a:B:A {__jsmf__: { elemId }, x: { elemX }})`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const b = new B({x: 12})
+    const M = new jsmf.Model('M', MM, [b])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(1)
         x.modellingElements.B.length.should.equal(1)
-        x.modellingElements.B[0].x.should.equal(params.elemX)
+        x.modellingElements.B[0].x.should.equal(12)
       })
   })
 
   it('resolves correctly inherited references', () => {
     const A = new jsmf.Class('A', [])
-    const C = new jsmf.Class('C', [])
+        , C = new jsmf.Class('C', [])
     A.addReference('ref', C, -1, 'back', -1)
     const B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [B,C])
-    const params = { aId: uuid1
-                   , bId: uuid2
-                   }
-    const initDB = session.run(`CREATE (a:A:B {__jsmf__: { aId }})-[:ref]->(b:C {__jsmf__: { bId }}) CREATE (a)<-[:back]-(b)`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const b = new B()
+        , c = new C()
+    b.ref = c
+    const M = new jsmf.Model('M', MM, [b, c])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(2)
         x.modellingElements.C.length.should.equal(1)
@@ -616,34 +617,36 @@ describe('Round trip transformation', () => {
     const A = new jsmf.Class('A', [], {x: Number})
     const B = new jsmf.Class('B', A)
     const MM = new jsmf.Model('MM', {}, [A,B])
-    const params = {idA: uuid1, xA: 12, idB: uuid2, xB: 42}
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { idA }, x: { xA }}) CREATE (b:B:A {__jsmf__: { idB }, x: { xB }})`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const a = new A({x : 12})
+    const b = new B({x : 42})
+    const M = new jsmf.Model('M', MM, [a, b])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(M))))
       .then(x => {
         x.elements().length.should.equal(2)
         x.modellingElements.A.length.should.equal(1)
-        x.modellingElements.A[0].x.should.equal(params.xA)
+        x.modellingElements.A[0].x.should.equal(12)
         x.modellingElements.B.length.should.equal(1)
-        x.modellingElements.B[0].x.should.equal(params.xB)
+        x.modellingElements.B[0].x.should.equal(42)
       })
   })
 
   it('solves elements that are not in the model', () => {
     const A = new jsmf.Class('A', [])
-    const B = new jsmf.Class('B', [])
+        , B = new jsmf.Class('B', [])
     A.addReference('ref', B, -1)
     const MM = new jsmf.Model('MM', {}, [A])
-    const params = { aId: uuid1
-                   , bId: uuid2
-                   }
-    const initDB = session.run(`CREATE (a:A {__jsmf__: { aId }})-[:ref]->(b:B {__jsmf__: { bId }})`, params)
-    return initDB
-      .then(() => n.loadModel(MM))
+    const a = new A()
+    const b = new B()
+    a.ref = b
+    const M = new jsmf.Model('M', MM, [a, b])
+    return n.saveModel(M)
+      .then(() => n.loadModelFromId(uuid.unparse(jsmf.jsmfId(MM))))
       .then(x => {
+        console.log(x)
         x.elements().length.should.equal(2)
-        x.modellingElements.A.length.should.equal(1)
-        x.modellingElements.A[0].ref.length.should.equal(1)
+        x.modellingElements.Class.length.should.equal(1)
+        x.classes.A[0].ref.length.should.equal(1)
       })
   })
 
