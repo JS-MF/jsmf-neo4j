@@ -38,6 +38,7 @@ function closeNeo4j() {
 }
 
 describe('load models', () => {
+  this.timeout(5000)
 
   before(initNeo4jConnector)
   beforeEach(cleanDB)
@@ -148,6 +149,7 @@ describe('load models', () => {
 
 
 describe('load models by name', () => {
+  this.timeout(5000)
 
   before(initNeo4jConnector)
   beforeEach(cleanDB)

@@ -30,6 +30,7 @@ function closeNeo4j() {
 }
 
 describe('saveModel', () => {
+  this.timeout(5000)
 
   before(initNeo4jConnector)
   beforeEach(cleanDB)

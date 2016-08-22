@@ -36,6 +36,7 @@ function closeNeo4j() {
 
 
 describe('Round trip transformation', () => {
+  this.timeout(5000)
 
   before(initNeo4jConnector)
   beforeEach(cleanDB)
