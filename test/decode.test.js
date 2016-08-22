@@ -28,8 +28,8 @@ function initNeo4jConnector(done) {
   done()
 }
 
-function cleanDB(done) {
-  return session.run('MATCH (n) DETACH DELETE n').then(() => done()).catch(err => done(err))
+function cleanDB() {
+  return session.run('MATCH (n) DETACH DELETE n')
 }
 
 function closeNeo4j() {
@@ -37,7 +37,7 @@ function closeNeo4j() {
   n.close()
 }
 
-describe('load models', () => {
+describe('load models', function () {
   this.timeout(5000)
 
   before(initNeo4jConnector)
@@ -148,7 +148,7 @@ describe('load models', () => {
 })
 
 
-describe('load models by name', () => {
+describe('load models by name', function () {
   this.timeout(5000)
 
   before(initNeo4jConnector)

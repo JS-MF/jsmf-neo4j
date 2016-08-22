@@ -25,8 +25,8 @@ function initNeo4jConnector(done) {
   done()
 }
 
-function cleanDB(done) {
-  return session.run('MATCH (n) DETACH DELETE n').then(() => done()).catch(err => done(err))
+function cleanDB() {
+  return session.run('MATCH (n) DETACH DELETE n')
 }
 
 function closeNeo4j() {
@@ -35,7 +35,7 @@ function closeNeo4j() {
 }
 
 
-describe('Round trip transformation', () => {
+describe('Round trip transformation', function () {
   this.timeout(5000)
 
   before(initNeo4jConnector)

@@ -20,8 +20,8 @@ function initNeo4jConnector(done) {
   done()
 }
 
-function cleanDB(done) {
-  return session.run('MATCH (n) DETACH DELETE n').then(() => done()).catch(err => done(err))
+function cleanDB() {
+  return session.run('MATCH (n) DETACH DELETE n')
 }
 
 function closeNeo4j() {
@@ -29,7 +29,7 @@ function closeNeo4j() {
   n.close()
 }
 
-describe('saveModel', () => {
+describe('saveModel', function () {
   this.timeout(5000)
 
   before(initNeo4jConnector)
