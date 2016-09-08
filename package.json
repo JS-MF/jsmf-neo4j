@@ -1,6 +1,6 @@
 {
   "name": "jsmf-neo4j",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "JSMF Neo4J Connector",
   "main": "src/index.js",
   "directories": {
@@ -22,7 +22,7 @@
   "author": "Jean-Sebastien Sottet <jean-sebastien.sottet@list.lu> (http://www.list.lu/)",
   "license": "MIT",
   "dependencies": {
-    "jsmf-core": "git+ssh://git@git.list.lu:jsmf/jsmf-core.git",
+    "jsmf-core": "^0.10.0",
     "lodash": "^4.1.0",
     "neo4j-driver": "^1.0.3",
     "uuid": "^2.0.2"
