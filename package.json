@@ -22,13 +22,13 @@
   "author": "Jean-Sebastien Sottet <jean-sebastien.sottet@list.lu> (http://www.list.lu/)",
   "license": "MIT",
   "dependencies": {
-    "jsmf-core": "^0.10.0",
+    "jsmf-core": "^0.11.0",
     "lodash": "^4.1.0",
     "neo4j-driver": "^1.0.3",
     "uuid": "^2.0.2"
   },
   "devDependencies": {
     "mocha": "^3.0.0",
-    "should": "^8.4.0"
+    "should": "^11.1.0"
   }
 }
