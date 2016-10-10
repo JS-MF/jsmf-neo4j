@@ -34,6 +34,52 @@ function closeNeo4j() {
   n.close()
 }
 
+describe('List models', function () {
+  this.timeout(5000)
+
+  before(initNeo4jConnector)
+  beforeEach(cleanDB)
+  after(closeNeo4j)
+
+  it('works on a single model', () => {
+    const A = new jsmf.Class('A', [])
+    const a = new A()
+    const M = new jsmf.Model('M', {}, [a])
+    return n.saveModel(M)
+            .then(() => n.listModels())
+            .then(res => {
+              res.length.should.equal(1)
+              res[0].should.have.property('name', M.__name)
+              res[0].should.have.property('jsmfId', uuid.unparse(jsmf.jsmfId(M)))
+            })
+  })
+
+  it('works on several models', () => {
+    const A = new jsmf.Class('A', [])
+    const a = new A()
+    const M1 = new jsmf.Model('M1', {}, [a])
+    const M2 = new jsmf.Model('M2', {}, [a])
+    return n.saveModel(M1)
+            .then(() => n.saveModel(M2))
+            .then(() => n.listModels())
+            .then(res => {
+              res.length.should.equal(2)
+            })
+  })
+
+  it('lists metamodels as well', () => {
+    const A = new jsmf.Class('A', [])
+    const a = new A()
+    const M1 = new jsmf.Model('M1', {}, [a])
+    const M2 = new jsmf.Model('M2', M1, [a])
+    return n.saveModel(M2)
+            .then(() => n.listModels())
+            .then(res => {
+              res.length.should.equal(2)
+            })
+
+  })
+})
 
 describe('Round trip transformation', function () {
   this.timeout(5000)

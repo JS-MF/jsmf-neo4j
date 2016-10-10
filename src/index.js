@@ -17,6 +17,7 @@ TODO:
 'use strict'
 
 const neo4j = require('neo4j-driver').v1
+    , _ = require('lodash')
     , encode = require('./encode')
     , decode = require('./decode')
 
@@ -51,4 +52,14 @@ module.exports.loadModelByName = module.exports.loadModelFromName = function loa
 
 module.exports.loadModelById = module.exports.loadModelFromId = function loadModelFromId(mId, mm, ownTypes) {
   return decode.loadModelFromId(mId, mm, ownTypes, driver)
+}
+
+module.exports.listModels = function listModels() {
+  const session = driver.session()
+  const query = 'MATCH (m:Meta:Model) RETURN m.__jsmf__ AS jsmfId, m.name AS name'
+  let res
+  return session.run(query)
+    .then(result => {res = _.map(result.records, r => ({jsmfId: r.get('jsmfId'), name: r.get('name')}))})
+    .then(() => session.close())
+    .then(() => res)
 }

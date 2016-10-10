@@ -7,13 +7,6 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 Authors : N. Biri, J.S. Sottet
 */
 
-/* **************************************
-TODO:
-    - add logger
-    - make a version with batch processing
-    - read from DB
-    - update nodes/model
-*************************************** */
 'use strict'
 
 const _ = require('lodash')
@@ -23,7 +16,7 @@ const _ = require('lodash')
 
 function loadModelFromName(name, referenceModel, ownTypes, driver) {
   const session = driver.session()
-  let nodeModels, dryNodes, dryMeta
+  let res, nodeModels, dryNodes, dryMeta
   const elements = referenceModel instanceof jsmf.Model
     ? _.fromPairs(_.map(referenceModel.elements(), c => [uuid.unparse(jsmf.jsmfId(c)), c]))
     : {}
@@ -43,7 +36,9 @@ function loadModelFromName(name, referenceModel, ownTypes, driver) {
       r.disembodyModel(model, acc)
       return acc
     }, new Map()))
-    .then(m => Array.from(m.values()))
+    .then(m => res = Array.from(m.values()))
+    .then(() => session.close())
+    .then(() => res)
 }
 
 module.exports.loadModelFromName = loadModelFromName
@@ -64,6 +59,7 @@ function loadModelFromId(mId, referenceModel, ownTypes, driver) {
     .then(() => loadClasses(session, dryMeta, elements, ownTypes, driver))
     .then(() => findModelById(session, mId))
     .then(nodeModel => loadElements(session, dryNodes.concat([nodeModel]), elements, ownTypes, driver))
+    .then(() => session.close())
     .then(() => r.disembodyModel(elements[mId], new Map()))
 }
 

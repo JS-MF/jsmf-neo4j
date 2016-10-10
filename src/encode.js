@@ -40,20 +40,27 @@ function saveAttribute(elt, reified, ownTypes, session, driver) {
   const dry = dryElement(e, ownTypes)
   const classes = _.map(e.conformsTo().getInheritanceChain(), '__name')
   classes.push('JSMF')
-  if (e.__jsmf__.storedIn === driver._url) {
-    const clean = 'MATCH (x {__jsmf__: {jsmfId}}) DETACH DELETE x'
-    const update = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
-    return session.run(clean, {jsmfId: dry.__jsmf__})
-      .then(() => session.run(update, {params: dry, jsmfId: dry.__jsmf__}))
-      .then(v => { setAsStored(e, driver); return [e, v.records[0].get(0).identity]})
-      .catch(err => Promise.reject(new Error(`Error with element: ${dry}`)))
-  } else {
-    const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
-    return session.run(query, {params: dry})
-      .catch(() => storeDuplicatedIdElement(classes, e, dry, session, driver))
-      .then(v => { setAsStored(e, driver); return [e, v.records[0].get(0).identity]})
-      .catch(err => Promise.reject(new Error(`Error with element: ${dry}`)))
-  }
+  return e.__jsmf__.storedIn === driver._url
+           ? saveExistingAttribute(dry, classes, elt, session, driver)
+           : saveNewAttribute(dry, classes, elt, session, driver)
+}
+
+function saveExistingAttribute(dry, classes, elt, session, driver) {
+  const clean = 'MATCH (x {__jsmf__: {jsmfId}}) DETACH DELETE x'
+  const update = `MERGE (x:${classes.join(':')} {__jsmf__: {jsmfId}}) SET x = {params} RETURN (x)`
+  return session.run(clean, {jsmfId: dry.__jsmf__})
+    .then(() => session.run(update, {params: dry, jsmfId: dry.__jsmf__}))
+    .then(v => { setAsStored(elt, driver); return [elt, v.records[0].get(0).identity]})
+    .catch(() => Promise.reject(new Error(`Error with element: ${dry}`)))
+}
+
+
+function saveNewAttribute(dry, classes, elt, session, driver) {
+  const query = `CREATE (x:${classes.join(':')} {params}) RETURN (x)`
+  return session.run(query, {params: dry})
+    .catch(() => storeDuplicatedIdElement(classes, elt, dry, session, driver))
+    .then(v => { setAsStored(elt, driver); return [elt, v.records[0].get(0).identity]})
+    .catch(() => Promise.reject(new Error(`Error with element: ${dry}`)))
 }
 
 
@@ -87,7 +94,9 @@ function saveRelationship(source, ref, target, associated, elemMap, reified, own
                       RETURN r
                      `
   return Promise.all(_.map([source, associated, target], e => resolveId(e, elemMap, reified, ownTypes, session, driver)))
-    .then(ids => Object.assign({sourceId: ids[0], targetId: ids[2]}, associated!==undefined?{associated: dryElement(associated)}:{})
+    .then(ids => Object.assign( {sourceId: ids[0], targetId: ids[2]}
+                              , associated!==undefined?{associated: dryElement(associated)}:{}
+                              )
     )
     .then(params => session.run(statements, params))
 }
